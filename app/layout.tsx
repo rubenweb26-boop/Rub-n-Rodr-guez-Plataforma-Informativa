@@ -4,11 +4,11 @@ import "./globals.css";
 export const metadata: Metadata = {
   metadataBase: new URL("https://rubenweb-cr.royaldoor1.chatgpt.site"),
   title: {
-    default: "RubénWeb | Información con propósito",
+    default: "RubénWeb | Denuncias e información ciudadana",
     template: "%s | RubénWeb",
   },
   description:
-    "Plataforma editorial de Rubén Rodríguez para información, investigación y participación ciudadana en Costa Rica.",
+    "Plataforma de Rubén Rodríguez para denuncias, información ciudadana e investigaciones en Costa Rica.",
   keywords: [
     "Rubén Rodríguez",
     "Costa Rica",
@@ -17,9 +17,9 @@ export const metadata: Metadata = {
     "participación ciudadana",
   ],
   openGraph: {
-    title: "RubénWeb | Información con propósito",
+    title: "RubénWeb | Denuncias e información ciudadana",
     description:
-      "Contenido, investigaciones y participación ciudadana en Costa Rica.",
+      "Denuncias, investigaciones e información ciudadana en Costa Rica.",
     locale: "es_CR",
     type: "website",
   },
