@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { Menu, Search, UserRound } from "lucide-react";
 import {
   chatGPTSignInPath,
@@ -23,7 +22,7 @@ export async function SiteHeader() {
     <>
       <header className="sticky top-0 z-50 border-b border-[#ded8ce] bg-[#fffdf9]/95 backdrop-blur-xl">
         <div className="container-shell flex min-h-[74px] items-center gap-5">
-          <Link href="/" className="mr-auto flex items-center gap-3" aria-label="RubénWeb, inicio">
+          <a href="/" className="mr-auto flex items-center gap-3" aria-label="RubénWeb, inicio">
             <span className="grid size-10 place-items-center rounded-full bg-[#d84d3d] text-xl font-black text-white shadow-[0_8px_20px_rgba(216,77,61,.22)]">
               R
             </span>
@@ -35,13 +34,13 @@ export async function SiteHeader() {
                 Información ciudadana
               </span>
             </span>
-          </Link>
+          </a>
 
           <nav className="hidden items-center gap-5 xl:flex" aria-label="Navegación principal">
             {links.map(([label, href]) => (
-              <Link key={href} href={href} className="text-[0.82rem] font-bold text-[#2b3547] hover:text-[#0759e6]">
+              <a key={href} href={href} className="text-[0.82rem] font-bold text-[#2b3547] hover:text-[#a5342a]">
                 {label}
-              </Link>
+              </a>
             ))}
           </nav>
 
@@ -55,9 +54,9 @@ export async function SiteHeader() {
 
           {user ? (
             <div className="hidden items-center gap-2 md:flex">
-              <Link className="btn-secondary !h-10 !min-h-10 !px-3" href="/mi-cuenta">
+              <a className="btn-secondary !h-10 !min-h-10 !px-3" href="/mi-cuenta">
                 <UserRound size={16} aria-hidden="true" /> Mi cuenta
-              </Link>
+              </a>
               <a className="btn-primary !h-10 !min-h-10 !px-3" href={chatGPTSignOutPath("/")} target="_top">
                 Salir
               </a>
@@ -76,14 +75,14 @@ export async function SiteHeader() {
             </summary>
             <div className="absolute right-0 mt-3 grid w-[min(320px,calc(100vw-24px))] gap-1 rounded-2xl border border-[#d4dfed] bg-white p-3 shadow-2xl">
               {links.map(([label, href]) => (
-                <Link key={href} href={href} className="rounded-xl px-4 py-3 text-sm font-bold hover:bg-[#eef4ff]">
+                <a key={href} href={href} className="rounded-xl px-4 py-3 text-sm font-bold hover:bg-[#fff0e9]">
                   {label}
-                </Link>
+                </a>
               ))}
               <div className="my-1 h-px bg-[#e0e7f1]" />
-              <Link href="/mi-cuenta" className="rounded-xl px-4 py-3 text-sm font-bold text-[#0759e6]">
+              <a href="/mi-cuenta" className="rounded-xl px-4 py-3 text-sm font-bold text-[#a5342a]">
                 Mi cuenta
-              </Link>
+              </a>
             </div>
           </details>
         </div>

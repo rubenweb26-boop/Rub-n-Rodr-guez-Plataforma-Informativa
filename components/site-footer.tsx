@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { Mail } from "lucide-react";
 
 export function SiteFooter() {
@@ -26,18 +25,18 @@ export function SiteFooter() {
         <div>
           <h2 className="mb-4 text-sm font-extrabold uppercase tracking-[0.12em] text-[#a9c3ef]">Explorar</h2>
           <div className="grid gap-3 text-sm text-[#e6eefc]">
-            <Link href="/contenido">Contenido</Link>
-            <Link href="/membresia">Membresía</Link>
-            <Link href="/denuncias">Presentar denuncia</Link>
-            <Link href="/anuncios">Anuncios y servicios</Link>
+            <a href="/contenido">Contenido</a>
+            <a href="/membresia">Membresía</a>
+            <a href="/denuncias">Presentar denuncia</a>
+            <a href="/anuncios">Anuncios y servicios</a>
           </div>
         </div>
         <div>
           <h2 className="mb-4 text-sm font-extrabold uppercase tracking-[0.12em] text-[#a9c3ef]">Legal y soporte</h2>
           <div className="grid gap-3 text-sm text-[#e6eefc]">
-            <Link href="/privacidad">Privacidad</Link>
-            <Link href="/terminos">Términos de uso</Link>
-            <Link href="/contacto">Contacto</Link>
+            <a href="/privacidad">Privacidad</a>
+            <a href="/terminos">Términos de uso</a>
+            <a href="/contacto">Contacto</a>
           </div>
         </div>
       </div>
