@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Menu, Search, ShieldCheck, UserRound } from "lucide-react";
+import { Menu, Search, UserRound } from "lucide-react";
 import {
   chatGPTSignInPath,
   chatGPTSignOutPath,
@@ -10,7 +10,7 @@ const links = [
   ["Inicio", "/"],
   ["Contenido", "/contenido"],
   ["Membresía", "/membresia"],
-  ["Denuncias", "/denuncias"],
+  ["Presentar denuncia", "/denuncias"],
   ["Anuncios", "/anuncios"],
   ["Sobre mí", "/sobre-mi"],
   ["Contacto", "/contacto"],
@@ -21,29 +21,18 @@ export async function SiteHeader() {
 
   return (
     <>
-      <div className="border-b border-[#d7e2f2] bg-[#071a3c] text-white">
-        <div className="container-shell flex min-h-9 items-center justify-between gap-4 py-2 text-[0.72rem] font-bold tracking-wide">
-          <span className="flex items-center gap-2">
-            <ShieldCheck size={14} aria-hidden="true" />
-            MVP privado · datos reales sensibles aún no habilitados
-          </span>
-          <Link className="hidden text-[#bcd2ff] hover:text-white sm:inline" href="/estado-del-proyecto">
-            Ver estado de integraciones
-          </Link>
-        </div>
-      </div>
-      <header className="sticky top-0 z-50 border-b border-[#dce5f1] bg-white/95 backdrop-blur-xl">
+      <header className="sticky top-0 z-50 border-b border-[#ded8ce] bg-[#fffdf9]/95 backdrop-blur-xl">
         <div className="container-shell flex min-h-[74px] items-center gap-5">
           <Link href="/" className="mr-auto flex items-center gap-3" aria-label="RubénWeb, inicio">
-            <span className="grid size-10 place-items-center rounded-[13px] bg-[#0759e6] text-xl font-black text-white shadow-[0_8px_20px_rgba(7,89,230,.22)]">
+            <span className="grid size-10 place-items-center rounded-full bg-[#d84d3d] text-xl font-black text-white shadow-[0_8px_20px_rgba(216,77,61,.22)]">
               R
             </span>
             <span className="leading-none">
               <span className="block text-[1.18rem] font-black tracking-[-0.045em]">
-                Rubén<span className="text-[#0759e6]">Web</span>
+                Rubén<span className="text-[#d84d3d]">Web</span>
               </span>
               <span className="mt-1 block text-[0.58rem] font-bold uppercase tracking-[0.18em] text-[#6d7789]">
-                Información con propósito
+                Información ciudadana
               </span>
             </span>
           </Link>
@@ -56,11 +45,11 @@ export async function SiteHeader() {
             ))}
           </nav>
 
-          <form action="/contenido" className="hidden lg:block">
+          <form action="/buscar" className="hidden lg:block">
             <label className="sr-only" htmlFor="header-search">Buscar contenido</label>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[#637087]" size={17} aria-hidden="true" />
-              <input id="header-search" name="q" placeholder="Buscar" className="h-10 w-28 rounded-xl border border-[#d4dfed] bg-[#f7f9fc] pl-9 pr-3 text-sm transition-all focus:w-44" />
+              <input id="header-search" name="q" placeholder="Buscar" className="h-10 w-28 rounded-full border border-[#d9d0c5] bg-[#f8f4ee] pl-9 pr-3 text-sm transition-all focus:w-44" />
             </div>
           </form>
 
