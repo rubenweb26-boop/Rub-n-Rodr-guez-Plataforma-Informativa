@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { PageShell } from "@/components/page-shell";
 import { BillingPortalButton } from "@/components/billing-portal-button";
+import { CookiePreferencesButton } from "@/components/cookie-preferences-button";
 import type { AuthProviderId } from "@/lib/auth/providers";
 import { requireUser } from "@/lib/auth/user";
 import { recordAuditEvent } from "@/lib/security/audit";
@@ -68,7 +69,7 @@ export default async function AccountPage() {
   return (
     <PageShell>
       <main>
-        <section className="border-b border-[#dce5f1] bg-white py-12">
+        <section id="perfil" className="scroll-mt-24 border-b border-[#dce5f1] bg-white py-12">
           <div className="container-shell flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-4">
               <span className="grid size-14 place-items-center rounded-2xl bg-[#eaf2ff] text-[#0759e6]">
@@ -105,7 +106,7 @@ export default async function AccountPage() {
                 </p>
               )}
             </div>
-            <div className="surface p-6">
+            <div id="membresia" className="surface scroll-mt-24 p-6">
               <CreditCard className="text-[#0759e6]" />
               <p className="mb-1 mt-4 text-sm font-bold text-[#68758a]">Membresía</p>
               <p className="m-0 text-xl font-black">
@@ -128,7 +129,7 @@ export default async function AccountPage() {
             </div>
           </div>
 
-          <section className="mt-9">
+          <section id="denuncias" className="mt-9 scroll-mt-24">
             <div className="mb-5 flex items-center justify-between">
               <div>
                 <span className="eyebrow">Seguimiento privado</span>
@@ -183,6 +184,11 @@ export default async function AccountPage() {
                 </div>
               </div>
             )}
+          </section>
+          <section id="configuracion" className="surface mt-9 scroll-mt-24 p-6">
+            <h2 className="text-xl font-black">Configuración</h2>
+            <p className="mt-2 text-sm text-[#556377]">Controla tus preferencias de privacidad y el acceso a tu cuenta.</p>
+            <div className="mt-4 flex flex-wrap gap-5 text-sm font-bold text-[#a5342a]"><CookiePreferencesButton /><Link href="/mi-cuenta/eliminar">Eliminar cuenta</Link></div>
           </section>
         </section>
       </main>

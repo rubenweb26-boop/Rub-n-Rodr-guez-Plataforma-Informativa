@@ -104,16 +104,16 @@ function UserDropdown({
           {!showDeleteConfirm ? (
             <>
               <nav className="p-2 space-y-0.5">
-                <DropdownLink href="/mi-cuenta" icon={<User size={15} />}>
+                <DropdownLink href="/mi-cuenta#perfil" icon={<User size={15} />}>
                   Mi perfil
                 </DropdownLink>
-                <DropdownLink href="/mi-cuenta" icon={<Settings size={15} />}>
+                <DropdownLink href="/mi-cuenta#configuracion" icon={<Settings size={15} />}>
                   Configuración
                 </DropdownLink>
-                <DropdownLink href="/membresia" icon={<CreditCard size={15} />}>
+                <DropdownLink href="/mi-cuenta#membresia" icon={<CreditCard size={15} />}>
                   Mi membresía
                 </DropdownLink>
-                <DropdownLink href="/mi-cuenta" icon={<FileText size={15} />}>
+                <DropdownLink href="/mi-cuenta#denuncias" icon={<FileText size={15} />}>
                   Mis denuncias
                 </DropdownLink>
               </nav>

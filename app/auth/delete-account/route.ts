@@ -6,6 +6,7 @@ import { isSameOriginMutation, hasContentType, readRequestWithLimit } from "@/li
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
+  if (process.env.ACCOUNT_DELETION_ENABLED !== "true") return NextResponse.redirect(new URL("/mi-cuenta/eliminar?error=service", request.url), 303);
   if (!isSameOriginMutation(request) || !hasContentType(request, "application/x-www-form-urlencoded")) return Response.json({ error: "Solicitud no autorizada" }, { status: 403 });
   if (!getSupabasePublicConfig()) return NextResponse.redirect(new URL("/mi-cuenta/eliminar?error=service", request.url), 303);
   let form: FormData;
