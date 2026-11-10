@@ -1,59 +1,63 @@
-export type PaymentProviderName = "onvo";
+export type PaymentProviderName = "tilopay";
 
 export type PaymentCurrency = "CRC" | "USD";
 
-export type PaymentMode = "test" | "live";
-
-export interface SubscriptionItemInput {
-  priceId: string;
-  quantity?: number;
+export interface TilopayBillingDetails {
+  firstName: string;
+  lastName: string;
+  address: string;
+  address2: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+  telephone: string;
+  email: string;
 }
 
-export interface CreateSubscriptionInput {
-  customerId: string;
-  items: SubscriptionItemInput[];
-  metadata?: Record<string, string>;
-}
-
-export interface ProviderSubscription {
-  id: string;
-  status: string;
-  mode?: PaymentMode;
-  customerId?: string;
-  currentPeriodEnd?: string;
-}
-
-export interface ProviderPaymentIntent {
-  id: string;
-  status: string;
-  amount: number;
+export interface CreateHostedPaymentInput {
+  /** Unique merchant order number persisted before this call is made. */
+  orderNumber: string;
+  amountMinor: number;
   currency: PaymentCurrency;
-  receivedAmount?: number;
-  customerId?: string;
-  metadata?: Record<string, unknown>;
+  redirectUrl: string;
+  billing: TilopayBillingDetails;
+  returnData?: string;
 }
 
-/**
- * Server-only boundary for payment operations. UI code should never import a
- * provider implementation or receive a provider secret.
- */
+export interface HostedPaymentPage {
+  orderNumber: string;
+  checkoutUrl: string;
+}
+
+export type ConsultedPaymentStatus = "approved" | "rejected" | "not_found";
+
+export interface ConsultedPayment {
+  orderNumber: string;
+  status: ConsultedPaymentStatus;
+  providerTransactionId: string | null;
+  amountMinor: number | null;
+  currency: PaymentCurrency | null;
+  authorizationCode: string | null;
+  providerMessage: string | null;
+  environment: string | null;
+  occurredAt: Date | null;
+}
+
+/** Server-only boundary for the Tilopay Hosted Payment Page API. */
 export interface PaymentProvider {
   readonly name: PaymentProviderName;
   readonly enabled: boolean;
 
-  createSubscription(
-    input: CreateSubscriptionInput,
-  ): Promise<ProviderSubscription>;
-
-  getSubscription(subscriptionId: string): Promise<ProviderSubscription>;
-
-  cancelSubscription(subscriptionId: string): Promise<ProviderSubscription>;
+  createHostedPayment(
+    input: CreateHostedPaymentInput,
+  ): Promise<HostedPaymentPage>;
 
   /**
-   * Source of truth after a browser returns from checkout. A redirect query
-   * string is never sufficient to grant premium access.
+   * The only source of truth after a browser callback or webhook. Neither of
+   * those untrusted messages may grant access without this lookup succeeding.
    */
-  getPaymentIntent(paymentIntentId: string): Promise<ProviderPaymentIntent>;
+  consultOrder(orderNumber: string): Promise<ConsultedPayment>;
 }
 
 export class PaymentIntegrationDisabledError extends Error {
@@ -61,7 +65,7 @@ export class PaymentIntegrationDisabledError extends Error {
 
   constructor(provider: PaymentProviderName) {
     super(
-      `The ${provider} payment integration is disabled. Configure test credentials and explicitly enable it before creating charges.`,
+      `The ${provider} payment integration is disabled. Configure server credentials and explicitly enable it before creating charges.`,
     );
     this.name = "PaymentIntegrationDisabledError";
   }

@@ -4,105 +4,91 @@
 
 | Entorno | Uso | Datos permitidos |
 | --- | --- | --- |
-| Local | Desarrollo y pruebas rápidas | Datos ficticios |
-| Site privado | Revisión del cliente y QA | Datos ficticios o controlados |
-| Producción pública | Operación real | Solo tras cumplir la lista de salida |
+| Local | Desarrollo y pruebas unitarias/manuales | Solo datos ficticios. |
+| Pruebas privadas | QA de integración | Usuarios y pagos de prueba controlados. |
+| Producción | Operación pública | Solo después de aprobar seguridad, legal, respaldo y monitoreo. |
 
-El proyecto actual corresponde al segundo entorno. No cambiar el acceso a público sin aprobación explícita del cliente y sin completar seguridad, legal, integraciones y restauración.
+No se debe cambiar la audiencia del Site a pública sin la aprobación expresa del propietario.
 
-## Requisitos
+## Precondiciones por entorno
 
-- Node.js `>=22.13.0`.
-- Git y `tar`.
-- Dependencias instaladas con el lockfile.
-- Acceso autorizado al proyecto de Sites.
-- Variables y secretos definidos en Sites, no en el repositorio.
+1. Crear un proyecto Supabase distinto por entorno y aplicar `supabase/migrations/0001_security_foundation.sql` una única vez en cada uno.
+2. Configurar Google OAuth en Supabase y registrar únicamente redirect URLs del entorno correspondiente.
+3. Crear una configuración Turnstile por dominio y activar la validación server-side.
+4. Cargar secretos en el gestor del hosting; no usar archivos `.env` en el artefacto ni en Git.
+5. Confirmar que `complaint-evidence` es un bucket privado y que RLS está habilitado/forzado en cada tabla de `public`.
+6. Mantener `COMPLAINT_INTAKE_ENABLED=false` y `TILOPAY_PAYMENTS_ENABLED=false` hasta completar pruebas y aprobación operativa.
 
-## Verificación local
+## Inventario de variables
+
+| Variable | Alcance | Descripción |
+| --- | --- | --- |
+| `NEXT_PUBLIC_SUPABASE_URL` | Pública | URL HTTPS del proyecto Supabase. |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Pública | Clave publishable; RLS limita su alcance. |
+| `SUPABASE_SECRET_KEY` | Secreta | Solo backend; permite tareas privilegiadas. |
+| `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | Pública | Identificador del widget Turnstile. |
+| `TURNSTILE_SECRET_KEY` | Secreta | Verificación server-side de Turnstile. |
+| `TURNSTILE_EXPECTED_HOSTNAME` | Configuración | Host canónico que debe devolver Turnstile; si falta se valida contra el host de la solicitud. |
+| `DATA_ENCRYPTION_KEY_V1` | Secreta | 32 bytes aleatorios codificados base64url. |
+| `DATA_ENCRYPTION_KEY_V2` | Secreta | Siguiente clave de 32 bytes durante una rotación controlada. |
+| `DATA_ENCRYPTION_KEY_VERSION` | Secreta/configuración | Versión de la clave de cifrado, actualmente `v1`. |
+| `AUDIT_HMAC_KEY`, `RATE_LIMIT_HMAC_KEY` | Secretas | Secretos independientes para pseudónimos y límites. |
+| `TILOPAY_*` | Secretas salvo callback | Credenciales de comercio y callback HTTPS fijo. |
+| `COMPLAINT_INTAKE_ENABLED`, `TILOPAY_PAYMENTS_ENABLED` | Configuración | Deben cambiarse a `true` solo tras la aprobación correspondiente. |
+
+Nunca enviar al navegador `SUPABASE_SECRET_KEY`, claves HMAC, claves de cifrado ni credenciales Tilopay. Después de una rotación, publicar una versión que consuma la nueva revisión de secretos.
+
+## Verificación antes de publicar
 
 ```powershell
 npm run install:ci
+npm run security:secrets
+npm run security:audit
 npm run lint
+npx tsc --noEmit
 npm run build
 ```
 
-Para desarrollo:
+Para lint SQL local se necesita Docker:
 
 ```powershell
-npm run dev
+supabase start
+supabase db lint --schema public
+supabase stop
 ```
 
-Para probar el artefacto Worker después del build:
+En la base de prueba, validar al menos:
 
-```powershell
-npm run start
-```
+- `anon` no lee datos privados;
+- dos usuarios no pueden leer ni cambiar registros del otro;
+- un administrador sin MFA (`aal2`) no obtiene capacidades administrativas;
+- las URLs de evidencia expiran y toda descarga deja auditoría;
+- callbacks/webhooks duplicados no conceden más de un período por transacción;
+- un importe, moneda u orden distintos no activan acceso.
 
-Registrar fecha, commit, versión de Node y resultados en `docs/PRUEBAS.md`.
+## Publicación en Sites
 
-## D1 y R2
+1. Confirmar que `.openai/hosting.json` conserva el `project_id` existente y no declara bindings D1/R2 ya no usados.
+2. Verificar los comandos anteriores con el commit exacto que se publicará.
+3. Guardar los secretos en el entorno de Sites sin exponerlos en logs.
+4. Crear una versión privada, esperar el estado terminal y verificar las rutas `/auth`, `/membresia`, `/denuncias`, `/mi-cuenta` y `/admin`.
+5. Revisar cabeceras HTTPS/CSP, logs de error y accesos de Supabase/Tilopay.
+6. Conservar versión, commit, fecha, responsable y resultado de QA en el registro de cambios.
 
-Los bindings lógicos `DB` y `BUCKET` y el esquema Drizzle ya están declarados. Para habilitar almacenamiento sensible de forma segura:
+## Reversión e incidentes
 
-1. generar la migración con `npm run db:generate`;
-2. inspeccionar y versionar SQL y metadatos Drizzle;
-3. construir el proyecto para generar la configuración local;
-4. aplicar migraciones a la base local en orden, sin repetir las ya aplicadas;
-5. cargar datos maestros autorizados fuera de la migración;
-6. ejecutar pruebas de aislamiento, autorización, cargas y restauración;
-7. conectar antimalware y aprobar la operación legal;
-8. publicar mediante el flujo de Sites, que aplica migraciones alojadas antes del Worker.
+Una reversión de código no deshace una migración, un pago ni una sesión emitida. Ante un incidente:
 
-Las migraciones aplicadas son inmutables. Las correcciones posteriores se agregan en una migración nueva.
+1. Desactivar las feature flags de pagos y recepción sensible si aplica.
+2. Rotar inmediatamente secretos expuestos y revocar sesiones/credenciales según el proveedor.
+3. Restaurar la última versión conocida como segura; para base de datos usar una migración correctiva, no editar una migración aplicada.
+4. Preservar auditoría, investigar alcance, restaurar datos desde un respaldo probado y documentar el incidente.
 
-## Variables y secretos
+## Lista de apertura pública
 
-- Usar `.env.example` solo como inventario.
-- No colocar secretos en variables `NEXT_PUBLIC_*`.
-- Sandbox y producción deben usar valores distintos.
-- Revisar quién posee y puede rotar cada credencial.
-- Después de cambiar una variable alojada, desplegar una versión guardada para aplicar la revisión de entorno.
-
-## Flujo de publicación en Sites
-
-1. Confirmar que `.openai/hosting.json` conserva el `project_id` existente.
-2. Ejecutar lint, build y pruebas con el código exacto que se publicará.
-3. Crear un commit y empujarlo al repositorio de origen asociado al Site.
-4. Empaquetar el artefacto generado mediante el helper oficial de Sites.
-5. Guardar y desplegar la versión privada exacta del commit.
-6. Esperar estado terminal `succeeded` o investigar `failed`.
-7. Verificar la URL publicada, navegación, recursos, accesibilidad básica y logs.
-8. Conservar ID de versión, commit, despliegue y responsable en el registro de cambios.
-
-No crear un Site nuevo si `.openai/hosting.json` ya contiene un `project_id`.
-
-## Dominio y acceso
-
-- El dominio definitivo y el nombre siguen pendientes.
-- Mantener acceso privado durante el MVP.
-- Configurar dominio, DNS y audiencia únicamente cuando el cliente lo autorice.
-- HTTPS es obligatorio y debe estar activo antes de aceptar tráfico real.
-
-## Reversión
-
-1. Detener nuevas operaciones sensibles si hay riesgo de corrupción o exposición.
-2. Seleccionar la última versión conocida como segura.
-3. Desplegar esa versión sin reescribir historial de migraciones.
-4. Si una migración ya se aplicó, crear una migración correctiva compatible; no editar la aplicada.
-5. Verificar integridad de datos y servicios externos.
-6. Documentar el incidente y acciones posteriores.
-
-Una reversión de código no revierte automáticamente D1, R2, pagos ni mensajes externos.
-
-## Criterios para producción pública
-
-- arquitectura final y proveedor de identidad aprobados;
-- datos de marca/contacto confirmados;
-- D1/R2 o Supabase implementados con aislamiento y respaldo;
-- pagos y webhooks probados en sandbox;
-- MFA, roles, auditoría y procedimientos administrativos;
-- correo, video y WhatsApp con cuentas autorizadas;
-- políticas legales y editoriales aprobadas;
-- pruebas de seguridad, carga, accesibilidad y restauración superadas;
-- monitoreo y atención de incidentes disponibles;
-- autorización escrita del propietario.
+- OAuth Google, MFA administrativa, RLS y Storage privados verificados en producción.
+- Tilopay probado por el comercio, incluido rechazo, abandono, repetición, reembolso y contracargo.
+- Especificación `OrderHash`/webhook validada con Tilopay.
+- Antimalware, retención, respaldos restaurables, alertas y contacto de incidentes operativos.
+- Términos, privacidad y procedimiento editorial aprobados por asesoría competente.
+- Dominio, DNS y HTTPS definitivos aprobados por el propietario.

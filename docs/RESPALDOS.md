@@ -6,8 +6,8 @@ Los valores definitivos deben aprobarse según costo, volumen y obligaciones leg
 
 | Activo | RPO objetivo | RTO objetivo | Retención inicial |
 | --- | --- | --- | --- |
-| D1: casos, perfiles, pagos y auditoría | 24 h; menor para pagos | 8 h | 35 días + cierres mensuales 12 meses |
-| R2: evidencias y material editorial | 24 h | 24 h | Según política legal y editorial |
+| Supabase Postgres: casos, perfiles, pagos y auditoría | 24 h; menor para pagos | 8 h | 35 días + cierres mensuales 12 meses |
+| Supabase Storage: evidencias y material editorial | 24 h | 24 h | Según política legal y editorial |
 | Código y migraciones | Por commit | 4 h | Historial Git |
 | Configuración no secreta | Por cambio | 4 h | Historial Git |
 | Secretos | No se respaldan en Git | Rotación inmediata | Gestor autorizado |
@@ -18,8 +18,8 @@ RPO es la pérdida máxima tolerada de datos; RTO es el tiempo objetivo de recup
 
 Respaldar:
 
-- tablas D1 y metadatos de migración;
-- objetos R2 y metadatos necesarios para relacionarlos;
+- tablas Supabase Postgres y metadatos de migración;
+- objetos Supabase Storage y metadatos necesarios para relacionarlos;
 - repositorio, lockfile, manifiesto de hosting y documentación;
 - configuración exportable de proveedores sin secretos;
 - registro de versiones y despliegues;
@@ -37,9 +37,9 @@ No crear respaldos informales en escritorios personales, correo o servicios no a
 - retención y eliminación coherentes con privacidad y litigios;
 - secretos y claves de cifrado administrados fuera del respaldo.
 
-## Procedimiento D1
+## Procedimiento Supabase Postgres
 
-Aplicable cuando el binding `DB` esté habilitado:
+Aplicable para el proyecto Supabase de cada entorno:
 
 1. identificar versión desplegada y última migración aplicada;
 2. iniciar exportación o snapshot con la herramienta oficial disponible;
@@ -50,9 +50,9 @@ Aplicable cuando el binding `DB` esté habilitado:
 
 No modificar el archivo de respaldo. Los datos de pagos deben poder reconciliarse además con el proveedor.
 
-## Procedimiento R2
+## Procedimiento Supabase Storage
 
-Aplicable cuando el binding `BUCKET` esté habilitado:
+Aplicable para los buckets privados del proyecto Supabase:
 
 1. generar inventario de objetos, versión, tamaño y checksum;
 2. copiar objetos a destino autorizado con cifrado;
@@ -66,8 +66,8 @@ Aplicable cuando el binding `BUCKET` esté habilitado:
 1. Abrir ticket de recuperación y determinar punto objetivo.
 2. Preservar el entorno afectado para análisis.
 3. Crear un entorno aislado, nunca restaurar primero sobre producción.
-4. Restaurar esquema/migraciones compatibles y luego datos D1.
-5. Restaurar objetos R2 y validar referencias.
+4. Restaurar esquema/migraciones compatibles y luego datos Postgres.
+5. Restaurar objetos de Storage y validar referencias.
 6. Ejecutar pruebas de conteo, integridad, propietarios, permisos y archivos.
 7. Reconciliar pagos y estados de suscripción con el proveedor.
 8. Realizar prueba funcional de acceso, denuncias y administración.

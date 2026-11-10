@@ -1,284 +1,295 @@
-import {
-  PaymentIntegrationDisabledError,
-  PaymentProviderError,
-  type CreateSubscriptionInput,
-  type PaymentProvider,
-  type ProviderPaymentIntent,
-  type ProviderSubscription,
-} from "./types";
+import crypto from "node:crypto";
 
-const DEFAULT_ONVO_API_BASE_URL = "https://api.onvopay.com";
-
-export interface OnvoProviderConfig {
-  /** Must be an explicit true. Missing credentials never enable payments. */
-  enabled: boolean;
-  secretKey?: string;
-  apiBaseUrl?: string;
-  fetchImpl?: typeof fetch;
+async function getAdminClient() {
+  const { createSupabaseAdminClient } = await import("../supabase/admin");
+  return createSupabaseAdminClient();
 }
 
-type OnvoErrorPayload = {
-  message?: string | string[];
-  error?: string;
+export type OnvoPlanKey = "membership_citizen" | "membership_commercial";
+
+export interface PlanConfig {
+  key: OnvoPlanKey;
+  name: string;
+  description: string;
+  amountCrc: number; // e.g. 3500
+  interval: "month";
+}
+
+export const ONVO_PLANS: Record<OnvoPlanKey, PlanConfig> = {
+  membership_citizen: {
+    key: "membership_citizen",
+    name: "Membresía Ciudadana Rubén Rodríguez",
+    description: "Acceso total a investigaciones exclusivas, videos premium y seguimiento privado de denuncias.",
+    amountCrc: 3500,
+    interval: "month",
+  },
+  membership_commercial: {
+    key: "membership_commercial",
+    name: "Membresía Comercial para Anunciantes",
+    description: "Perfil comercial verificado, publicación de hasta 10 productos/servicios y vitrina publicitaria.",
+    amountCrc: 3500,
+    interval: "month",
+  },
 };
 
-function hasText(value: string | undefined): value is string {
-  return typeof value === "string" && value.trim().length > 0;
-}
-
-function cleanIdentifier(value: string, field: string): string {
-  const cleaned = value.trim();
-  if (!cleaned || cleaned.includes("/") || cleaned.includes("?")) {
-    throw new TypeError(`${field} is invalid.`);
-  }
-  return cleaned;
-}
-
-function providerErrorMessage(payload: unknown, fallback: string): string {
-  if (!payload || typeof payload !== "object") return fallback;
-  const body = payload as OnvoErrorPayload;
-  if (Array.isArray(body.message)) return body.message.join("; ");
-  if (hasText(body.message)) return body.message;
-  if (hasText(body.error)) return body.error;
-  return fallback;
+export function isOnvoConfigured(): boolean {
+  return Boolean(process.env.ONVO_SECRET_KEY);
 }
 
 /**
- * ONVO adapter. Every network operation is guarded by both an explicit
- * feature flag and a server-side secret key. The default configuration is
- * therefore inert.
+ * Creates an ONVO Pay Hosted Checkout Session.
+ * Redirects the user to the official ONVO Pay payment page (supports Tarjetas & SINPE Móvil).
  */
-export class OnvoPaymentProvider implements PaymentProvider {
-  readonly name = "onvo" as const;
-  readonly enabled: boolean;
-
-  private readonly secretKey?: string;
-  private readonly apiBaseUrl: string;
-  private readonly fetchImpl: typeof fetch;
-
-  constructor(config: OnvoProviderConfig) {
-    this.secretKey = config.secretKey?.trim();
-    this.enabled = config.enabled && hasText(this.secretKey);
-    this.apiBaseUrl = (
-      config.apiBaseUrl?.trim() || DEFAULT_ONVO_API_BASE_URL
-    ).replace(/\/$/, "");
-    this.fetchImpl = config.fetchImpl ?? fetch;
+export async function createOnvoCheckoutSession({
+  userId,
+  userEmail,
+  planKey,
+  successUrl,
+  cancelUrl,
+}: {
+  userId: string;
+  userEmail: string;
+  planKey: OnvoPlanKey;
+  successUrl: string;
+  cancelUrl: string;
+}): Promise<{ url: string | null; sessionId?: string }> {
+  const secretKey = process.env.ONVO_SECRET_KEY;
+  if (!secretKey) {
+    throw new Error("ONVO Pay no está configurado en las variables de entorno (ONVO_SECRET_KEY requerida).");
   }
 
-  async createSubscription(
-    input: CreateSubscriptionInput,
-  ): Promise<ProviderSubscription> {
-    if (!input.items.length) {
-      throw new TypeError("A subscription requires at least one price item.");
-    }
+  const plan = ONVO_PLANS[planKey];
+  if (!plan) throw new Error(`Plan no válido: ${planKey}`);
 
-    return this.request<ProviderSubscription>("/v1/subscriptions", {
-      method: "POST",
-      body: JSON.stringify({
-        customerId: cleanIdentifier(input.customerId, "customerId"),
-        paymentBehavior: "allow_incomplete",
-        items: input.items.map((item) => ({
-          priceId: cleanIdentifier(item.priceId, "priceId"),
-          quantity: item.quantity ?? 1,
-        })),
-        metadata: input.metadata,
-      }),
-    });
-  }
+  const unitAmount = plan.amountCrc * 100; // Minor units (3500 * 100 = 350000 céntimos de CRC)
 
-  async getSubscription(subscriptionId: string): Promise<ProviderSubscription> {
-    const id = cleanIdentifier(subscriptionId, "subscriptionId");
-    return this.request<ProviderSubscription>(`/v1/subscriptions/${id}`);
-  }
-
-  async cancelSubscription(
-    subscriptionId: string,
-  ): Promise<ProviderSubscription> {
-    const id = cleanIdentifier(subscriptionId, "subscriptionId");
-    return this.request<ProviderSubscription>(`/v1/subscriptions/${id}`, {
-      method: "DELETE",
-    });
-  }
-
-  async getPaymentIntent(
-    paymentIntentId: string,
-  ): Promise<ProviderPaymentIntent> {
-    const id = cleanIdentifier(paymentIntentId, "paymentIntentId");
-    return this.request<ProviderPaymentIntent>(`/v1/payment-intents/${id}`);
-  }
-
-  private requireSecretKey(): string {
-    if (!this.enabled || !hasText(this.secretKey)) {
-      throw new PaymentIntegrationDisabledError(this.name);
-    }
-    return this.secretKey;
-  }
-
-  private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
-    const secretKey = this.requireSecretKey();
-
-    const response = await this.fetchImpl(`${this.apiBaseUrl}${path}`, {
-      ...init,
-      headers: {
-        Accept: "application/json",
-        Authorization: `Bearer ${secretKey}`,
-        "Content-Type": "application/json",
-        ...init.headers,
+  const payload = {
+    lineItems: [
+      {
+        quantity: 1,
+        unitAmount,
+        currency: "CRC",
+        description: `${plan.name} - ₡${plan.amountCrc} / mes`,
       },
-    });
+    ],
+    customerEmail: userEmail,
+    redirectUrl: successUrl,
+    cancelUrl: cancelUrl,
+    metadata: {
+      userId,
+      planKey,
+      interval: plan.interval,
+    },
+  };
 
-    const payload = (await response.json().catch(() => null)) as unknown;
-    if (!response.ok) {
-      throw new PaymentProviderError(
-        providerErrorMessage(payload, `ONVO request failed (${response.status}).`),
-        response.status,
-        this.name,
-      );
+  const response = await fetch("https://api.onvopay.com/v1/checkout/sessions/one-time-link", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${secretKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = (await response.json()) as {
+    url?: string;
+    id?: string;
+    message?: string;
+    error?: string;
+  };
+
+  if (!response.ok || !data.url) {
+    const errorDetail = data.message || data.error || `HTTP ${response.status}`;
+    throw new Error(`Error de Onvo Pay: ${errorDetail}`);
+  }
+
+  return { url: data.url, sessionId: data.id };
+}
+
+/**
+ * Handles incoming ONVO Pay Webhooks with X-Webhook-Secret validation.
+ */
+export async function processOnvoWebhook(
+  rawBody: string,
+  secretHeader: string | null,
+): Promise<{ received: boolean; eventType: string }> {
+  const configuredWebhookSecret = process.env.ONVO_WEBHOOK_SECRET;
+
+  if (configuredWebhookSecret) {
+    if (!secretHeader) {
+      throw new Error("Encabezado X-Webhook-Secret faltante.");
     }
 
-    return payload as T;
-  }
-}
+    const secretBuffer = Buffer.from(secretHeader, "utf8");
+    const configuredBuffer = Buffer.from(configuredWebhookSecret, "utf8");
 
-export function createOnvoProviderFromEnvironment(environment: {
-  ONVO_PAYMENTS_ENABLED?: string;
-  ONVO_SECRET_KEY?: string;
-  ONVO_API_BASE_URL?: string;
-}): OnvoPaymentProvider {
-  return new OnvoPaymentProvider({
-    enabled: environment.ONVO_PAYMENTS_ENABLED === "true",
-    secretKey: environment.ONVO_SECRET_KEY,
-    apiBaseUrl: environment.ONVO_API_BASE_URL,
+    if (
+      secretBuffer.length !== configuredBuffer.length ||
+      !crypto.timingSafeEqual(secretBuffer, configuredBuffer)
+    ) {
+      throw new Error("Firma o secreto de webhook ONVO no válido.");
+    }
+  }
+
+  let event: {
+    type?: string;
+    event?: string;
+    data?: {
+      id?: string;
+      status?: string;
+      amount?: number;
+      currency?: string;
+      customerEmail?: string;
+      metadata?: {
+        userId?: string;
+        planKey?: string;
+        [key: string]: unknown;
+      };
+      [key: string]: unknown;
+    };
+  };
+
+  try {
+    event = JSON.parse(rawBody);
+  } catch {
+    throw new Error("Cuerpo de webhook ONVO no es JSON válido.");
+  }
+
+  const eventType = event.type || event.event || "unknown";
+  const eventData = event.data || {};
+  const eventId = eventData.id || `onvo_evt_${crypto.randomUUID()}`;
+
+  const payloadHash = crypto.createHash("sha256").update(rawBody).digest("hex");
+
+  const admin = await getAdminClient();
+
+  // Guard against duplicate webhook deliveries (idempotency)
+  const { data: existingEvent } = await admin
+    .from("payment_provider_events")
+    .select("id")
+    .eq("provider", "onvo")
+    .eq("provider_event_id", eventId)
+    .maybeSingle();
+
+  if (existingEvent) {
+    return { received: true, eventType };
+  }
+
+  await admin.from("payment_provider_events").insert({
+    provider: "onvo",
+    provider_event_id: eventId,
+    event_type: eventType,
+    payload_hash: payloadHash,
+    signature_verified: Boolean(configuredWebhookSecret),
+    processing_status: "received",
   });
+
+  // Handle successful payments and recurring renewals
+  const isPaymentSuccess =
+    eventType === "checkout-session.succeeded" ||
+    eventType === "payment-intent.succeeded" ||
+    eventType === "subscription.renewal.succeeded";
+
+  if (isPaymentSuccess) {
+    const userId = eventData.metadata?.userId;
+    const planKey = (eventData.metadata?.planKey || "membership_citizen") as OnvoPlanKey;
+
+    if (userId) {
+      const planCode = planKey === "membership_commercial" ? "commercial_monthly" : "citizen_monthly";
+
+      const { data: planRow } = await admin
+        .from("plans")
+        .select("id")
+        .eq("code", planCode)
+        .maybeSingle();
+
+      const planId = planRow?.id;
+      const accessUntil = new Date(Date.now() + 32 * 24 * 60 * 60 * 1000).toISOString();
+
+      await admin.from("subscriptions").upsert(
+        {
+          user_id: userId,
+          plan_id: planId,
+          status: "active",
+          provider: "onvo",
+          provider_subscription_id: eventId,
+          provider_customer_id: eventData.customerEmail || userId,
+          access_until: accessUntil,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "provider,provider_subscription_id" },
+      );
+
+      const orderNumber = eventData.id || `ord_${Date.now()}`;
+      const amountMinor = Number(eventData.amount || 350000);
+      const idempotencyKey = `tx_${orderNumber}_${Date.now()}`;
+
+      await admin.from("payment_transactions").insert({
+        user_id: userId,
+        provider: "onvo",
+        provider_order_number: orderNumber,
+        provider_transaction_id: eventId,
+        idempotency_key: idempotencyKey,
+        amount_minor: amountMinor,
+        currency: (eventData.currency || "CRC").toUpperCase(),
+        status: "approved",
+        kind: "charge",
+        metadata_json: eventData.metadata || {},
+      });
+    }
+  } else if (eventType === "subscription.renewal.failed" || eventType === "subscription.canceled") {
+    if (eventId) {
+      await admin
+        .from("subscriptions")
+        .update({
+          status: "canceled",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("provider", "onvo")
+        .eq("provider_subscription_id", eventId);
+    }
+  }
+
+  return { received: true, eventType };
 }
 
-export const onvoWebhookEventTypes = [
-  "payment-intent.succeeded",
-  "payment-intent.failed",
-  "payment-intent.deferred",
-  "subscription.renewal.succeeded",
-  "subscription.renewal.failed",
-  "checkout-session.succeeded",
-] as const;
+/**
+ * Server-only verification of paid access.
+ * Checks database access window - unexpired and status active/past_due/canceled.
+ */
+export async function checkUserSubscriptionAccess(userId: string): Promise<{
+  hasAccess: boolean;
+  planCode: string | null;
+  accessUntil: string | null;
+}> {
+  if (!userId) return { hasAccess: false, planCode: null, accessUntil: null };
 
-export type OnvoWebhookEventType = (typeof onvoWebhookEventTypes)[number];
+  const admin = await getAdminClient();
+  const { data } = await admin
+    .from("subscriptions")
+    .select("status, access_until, plans(code)")
+    .eq("user_id", userId)
+    .in("status", ["active", "past_due", "canceled"])
+    .order("access_until", { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
-export interface OnvoWebhookEvent {
-  type: string;
-  data: Record<string, unknown>;
-}
-
-export function parseOnvoWebhookEvent(payload: unknown): OnvoWebhookEvent {
-  if (!payload || typeof payload !== "object") {
-    throw new TypeError("Webhook body must be a JSON object.");
+  if (!data?.access_until) {
+    return { hasAccess: false, planCode: null, accessUntil: null };
   }
 
-  const candidate = payload as Record<string, unknown>;
-  if (typeof candidate.type !== "string" || !candidate.type.trim()) {
-    throw new TypeError("Webhook event type is required.");
-  }
-  if (
-    !candidate.data ||
-    typeof candidate.data !== "object" ||
-    Array.isArray(candidate.data)
-  ) {
-    throw new TypeError("Webhook event data must be an object.");
-  }
+  const accessUntilDate = new Date(data.access_until);
+  const isUnexpired = accessUntilDate.getTime() > Date.now();
+
+  const rawPlans = data.plans as unknown;
+  const planCode =
+    rawPlans && typeof rawPlans === "object" && "code" in rawPlans
+      ? String((rawPlans as { code?: string }).code)
+      : null;
 
   return {
-    type: candidate.type.trim(),
-    data: candidate.data as Record<string, unknown>,
+    hasAccess: isUnexpired,
+    planCode,
+    accessUntil: data.access_until,
   };
-}
-
-/** Constant-time comparison suitable for ONVO's shared webhook secret. */
-export function verifyOnvoWebhookSecret(
-  providedSecret: string | null,
-  configuredSecret: string,
-): boolean {
-  if (!providedSecret || !configuredSecret) return false;
-
-  const encoder = new TextEncoder();
-  const provided = encoder.encode(providedSecret);
-  const configured = encoder.encode(configuredSecret);
-  const size = Math.max(provided.length, configured.length);
-  let difference = provided.length ^ configured.length;
-
-  for (let index = 0; index < size; index += 1) {
-    difference |= (provided[index] ?? 0) ^ (configured[index] ?? 0);
-  }
-
-  return difference === 0;
-}
-
-export async function fingerprintWebhookBody(rawBody: string): Promise<string> {
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(rawBody),
-  );
-  return Array.from(new Uint8Array(digest), (byte) =>
-    byte.toString(16).padStart(2, "0"),
-  ).join("");
-}
-
-export function getOnvoObjectId(event: OnvoWebhookEvent): string | null {
-  const candidates = [
-    event.data.id,
-    event.data.subscriptionId,
-    event.data.paymentIntentId,
-  ];
-  const value = candidates.find(
-    (candidate): candidate is string =>
-      typeof candidate === "string" && candidate.length > 0,
-  );
-  return value ?? null;
-}
-
-/**
- * ONVO does not currently document a top-level delivery/event ID. Build a
- * deterministic business-event key and fall back to the body hash. Renewal
- * attempts include their attempt number so separate failed retries are kept.
- */
-export function getOnvoProviderEventId(
-  event: OnvoWebhookEvent,
-  payloadHash: string,
-): string {
-  const values = [
-    event.type,
-    event.data.id,
-    event.data.subscriptionId,
-    event.data.paymentIntentId,
-    event.data.attemptCount,
-    event.data.periodStart,
-    event.data.periodEnd,
-    event.data.updatedAt,
-  ];
-  const parts = values
-    .filter(
-      (value): value is string | number =>
-        (typeof value === "string" && value.length > 0) ||
-        typeof value === "number",
-    )
-    .map(String);
-
-  return parts.length > 1 ? parts.join(":") : `${event.type}:${payloadHash}`;
-}
-
-export function getOnvoProviderOccurredAt(
-  event: OnvoWebhookEvent,
-): Date | null {
-  const candidates = [
-    event.data.updatedAt,
-    event.data.createdAt,
-    event.data.attemptedAt,
-    event.data.authorizationDate,
-  ];
-
-  for (const candidate of candidates) {
-    if (typeof candidate !== "string") continue;
-    const timestamp = Date.parse(candidate);
-    if (Number.isFinite(timestamp)) return new Date(timestamp);
-  }
-
-  return null;
 }

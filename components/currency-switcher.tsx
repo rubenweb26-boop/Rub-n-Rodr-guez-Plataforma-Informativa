@@ -1,14 +1,55 @@
 import Link from "next/link";
-import { Check, ShieldAlert } from "lucide-react";
+import { Sparkles } from "lucide-react";
+import { getCurrentUser } from "@/lib/auth/user";
+import { getTurnstileSiteKey } from "@/lib/security/turnstile";
+import { AuthButtons } from "./auth-buttons";
+import { SubscriptionCheckout } from "./subscription-checkout";
 
-export function CurrencySwitcher() {
-  return <div className="surface mx-auto max-w-[430px] overflow-hidden bg-[#fffdf9] p-7 sm:p-9">
-    <p className="m-0 text-xs font-black uppercase tracking-[.14em] text-[#b74033]">Membresía de contenido</p>
-    <p className="mb-0 mt-5 text-6xl font-black tracking-[-.07em]">₡3.500<span className="ml-2 text-base font-bold text-[#6b7688]">/ mes</span></p>
-    <p className="mt-4 text-sm leading-6 text-[#667287]">Accede al contenido exclusivo disponible, a la gestión de tu cuenta y al seguimiento privado de tus denuncias.</p>
-    <ul className="my-7 grid gap-3 p-0 text-sm font-bold">{["Investigaciones completas exclusivas", "Videos completos premium", "Formulario privado de denuncias", "Seguimiento de tus denuncias", "Gestión de cuenta y suscripción"].map((item) => <li key={item} className="flex items-start gap-2"><Check size={17} className="mt-0.5 text-[#b74033]" /> {item}</li>)}</ul>
-    <button disabled type="button" className="btn-primary w-full">Suscribirme</button>
-    <p className="mt-4 flex gap-2 rounded-xl bg-[#fff1e7] p-3 text-xs leading-5 text-[#795500]"><ShieldAlert className="mt-0.5 shrink-0" size={16} /> Los pagos en línea estarán disponibles próximamente.</p>
-    <Link href="/contacto" className="mt-4 block text-center text-sm font-black text-[#a5342a]">¿Tienes una consulta? Contáctanos</Link>
-  </div>;
+export async function CurrencySwitcher() {
+  const user = await getCurrentUser();
+  const siteKey = getTurnstileSiteKey();
+
+  return (
+    <div className="surface mx-auto max-w-[490px] overflow-hidden bg-[#fffdf9] p-7 sm:p-9 shadow-xl">
+      <div className="flex items-center justify-between">
+        <span className="eyebrow flex items-center gap-1.5 !text-[#b74033]">
+          <Sparkles size={14} /> Membresía Oficial
+        </span>
+        <span className="rounded bg-[#f0fdf4] px-2.5 py-0.5 text-xs font-black text-[#166534]">
+          Cobro en Colones (CRC)
+        </span>
+      </div>
+
+      <p className="mb-0 mt-4 text-5xl font-black tracking-[-.06em] text-[#142235]">
+        ₡3.500
+        <span className="ml-2 text-base font-bold text-[#5d6875]">/ mes</span>
+      </p>
+
+      <p className="mt-3 text-sm leading-6 text-[#5d6875]">
+        Acceso completo a investigaciones sin censura, videos documentales, formulario confidencial de denuncias y vitrina para anunciantes.
+      </p>
+
+      <div className="my-6 h-px bg-[#ded8ce]" />
+
+      {!user ? (
+        <div>
+          <p className="mb-3 text-xs font-bold text-[#142235]">
+            Inicia sesión o regístrate para activar tu suscripción:
+          </p>
+          <AuthButtons returnTo="/membresia" />
+        </div>
+      ) : (
+        <SubscriptionCheckout siteKey={siteKey} />
+      )}
+
+      <div className="mt-6 border-t border-[#ded8ce] pt-4 text-center">
+        <Link
+          href="/contacto"
+          className="text-xs font-bold text-[#a5342a] hover:underline"
+        >
+          ¿Dudas sobre el método de pago o facturación? Contáctanos
+        </Link>
+      </div>
+    </div>
+  );
 }

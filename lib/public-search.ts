@@ -19,7 +19,7 @@ const concepts: Record<string, string[]> = {
 function normalize(value: string) { return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim(); }
 
 export function searchPublicSite(query: string) {
-  const normalized = normalize(query);
+  const normalized = normalize(query.slice(0, 120));
   if (!normalized) return results;
   const words = normalized.split(/\s+/).filter(Boolean);
   const topics = Object.entries(concepts).filter(([, terms]) => terms.some((term) => words.some((word) => normalize(term).includes(word) || word.includes(normalize(term))))).map(([topic]) => topic);

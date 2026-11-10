@@ -1,168 +1,86 @@
 # Arquitectura y decisiones técnicas
 
-## 1. Alcance
+## Decisión adoptada
 
-El objetivo final es una plataforma editorial con contenido público y premium, denuncias privadas, anuncios, pagos verificados y administración segura. Esta entrega debe entenderse como un **MVP privado de validación**, no como el sistema productivo completo descrito en el brief.
-
-Principios:
-
-- autorización en servidor para toda operación protegida;
-- base de datos como fuente de verdad;
-- archivos privados con acceso temporal;
-- revisión humana antes de publicar denuncias o anuncios;
-- integraciones externas desactivadas hasta tener cuentas, contratos y sandbox;
-- mínima exposición de datos y trazabilidad de cambios.
-
-## 2. Arquitectura del MVP
+La plataforma usa una arquitectura única para identidad y datos:
 
 ```mermaid
 flowchart LR
-    U[Visitante o miembro] --> S[OpenAI Sites]
-    S --> W[Worker Vinext]
-    W --> UI[Next.js / React]
-    W -. identidad alojada .-> I[Sign in with ChatGPT]
-    W -. datos propuestos .-> D[(Cloudflare D1)]
-    W -. archivos propuestos .-> R[(Cloudflare R2)]
-    W -. futura integración .-> P[ONVO o Tilopay]
-    W -. futura integración .-> WA[WhatsApp Business]
-    A[Administrador] --> S
+  B[Navegador] --> W[Next.js / Cloudflare Worker]
+  B -->|Google OAuth| S[Supabase Auth]
+  W -->|JWT verificado / cookies| S
+  W -->|RLS o clave server-only| P[(Supabase Postgres)]
+  W -->|objetos privados| T[Supabase Storage]
+  W -->|crear / consultar orden| H[Tilopay HPP API]
+  H -->|callback y webhook no confiables| W
+  B -->|desafío| C[Cloudflare Turnstile]
 ```
 
-| Componente | Responsabilidad | Estado |
+Google es el proveedor de inicio de sesión; Supabase administra OAuth, sesiones, Postgres y Storage; Tilopay captura los datos de tarjeta en su Hosted Payment Page. No se usa una segunda identidad ni D1/R2 para datos de producto.
+
+## Límites de confianza
+
+| Componente | Responsabilidad | No puede decidir |
 | --- | --- | --- |
-| Sites | Hosting privado, identidad, despliegues y secretos | Activo para revisión privada |
-| Vinext/Worker | Renderizado, rutas y autorización en servidor | Base instalada |
-| D1 + Drizzle | Perfiles, roles, contenido, casos, pagos y auditoría | Diseño pendiente; binding aún no habilitado |
-| R2 | Evidencias, miniaturas y documentos privados | Diseño pendiente; binding aún no habilitado |
-| Proveedor de pago | Checkout, cobros, webhooks y reembolsos | No conectado |
-| WhatsApp Business | Orientación y atención autenticada | No conectado |
-| Proveedor de video | Reproducción privada mediante tokens o URLs temporales | No seleccionado |
+| Navegador | Presentación, formularios y token Turnstile | Rol, propiedad, importe, moneda, estado de pago o acceso premium. |
+| Google | Identidad OAuth | Roles, membresía o acceso a registros. |
+| Supabase Auth | Sesión y claims de autenticación | Autorización de negocio fuera de RLS/RPC. |
+| Worker | Validación, autorización, cifrado, integración de pagos y auditoría | Confiar en entrada del navegador, callback o webhook. |
+| Supabase Postgres | Fuente de verdad, RLS, constraints y funciones atómicas | Exponer filas sin una política. |
+| Supabase Storage | Objetos privados | Servir evidencia sin autorización y auditoría del backend. |
+| Tilopay | HPP y confirmación del proveedor | Elegir importe, usuario o membresía local. |
 
-## 3. Identidad
+## Identidad, sesión y roles
 
-Sites entrega al servidor `oai-authenticated-user-id` y `oai-authenticated-user-email`. El ID es estable para una persona dentro de este Site y debe ser la clave externa durable. El correo es dato de contacto, no clave primaria.
+- El inicio de sesión se inicia en `/auth/sign-in` y regresa a `/auth/callback` usando PKCE de Supabase SSR.
+- El backend obtiene el usuario con `auth.getUser()`, no con un valor de UI ni con una sesión sin verificar.
+- Las cookies de autenticación son `HttpOnly`, `SameSite=Lax`, `Path=/` y `Secure` en producción.
+- El trigger sobre `auth.users` crea `profiles` y asigna el rol básico `member`; el correo no es la fuente de autorización.
+- Los roles `admin`, `moderator` y `finance` requieren un JWT con `aal2` y una fila de control no suspendida. Asignarlos es una operación administrativa, no una allowlist de correos.
+- No hay contraseñas locales. Si se habilita email/contraseña, el hash, verificación y recuperación siguen siendo responsabilidad de Supabase Auth.
 
-La identidad alojada resuelve el acceso al MVP privado, pero existe una brecha frente al producto solicitado:
+## Datos y acceso
 
-- no implementa por sí sola registro con nombre, correo y contraseña;
-- no ofrece el flujo comercial de confirmación y recuperación de contraseña pedido en el brief;
-- no sustituye una tabla propia de perfiles, roles, sesiones de producto, suscripciones y consentimiento;
-- no prueba que una persona sea administradora o miembro premium.
+La migración `0001_security_foundation.sql` crea perfiles, roles, planes, precios, suscripciones, pagos, denuncias, evidencias, catálogos, auditoría y límites de tasa. Para todas las tablas de aplicación habilita y fuerza RLS.
 
-Opciones que debe aprobar el cliente:
+- Las claves publishable/anon solo leen catálogos y filas autorizadas por las políticas.
+- Las mutaciones delicadas cruzan RPCs acotados; la base deriva `owner_id`, códigos de seguimiento, timestamps, estados y límites en lugar de aceptar esos campos del cliente.
+- La clave server-only se usa solo en rutas de backend para auditoría, límites, conciliación, metadatos de evidencias y URLs firmadas.
+- Las consultas usan el cliente parametrizado de Supabase; no se construye SQL concatenando texto de usuario.
+- Los RPC `my_*` devuelven resúmenes mínimos, sin cifrado, notas internas ni identificadores de proveedor.
 
-1. **Mantener Sites + D1/R2:** menor complejidad para el MVP, identidad administrada y despliegue integrado. Requiere diseñar la experiencia de acceso alrededor de Sign in with ChatGPT.
-2. **Adoptar Supabase Auth/Postgres/Storage:** se ajusta mejor al registro tradicional y al ecosistema solicitado, pero introduce otro proveedor, migración de datos, correo, políticas RLS, secretos y costos.
-3. **Arquitectura híbrida:** no se recomienda sin una necesidad demostrada, porque duplica identidades y complica la reconciliación.
+## Denuncias y archivos
 
-No se implementará una autenticación casera con contraseñas.
+El formulario exige usuario autenticado, origen propio, Turnstile, límite de tasa y un esquema estricto. El texto sensible y nombres originales se cifran con AES-256-GCM antes de llegar a Postgres. El sobre incorpora versión, nonce aleatorio y AAD que ata el propósito de cifrado.
 
-## 4. Modelo de datos propuesto
+Una evidencia se acepta solo si cumple tamaño, tipo declarado y firma binaria real. El objeto recibe una ruta UUID opaca en el bucket privado `complaint-evidence`. Queda `pending` hasta que un escáner externo la marque `clean`; solo después el backend autoriza, registra el acceso y expide una URL firmada de 60 segundos.
 
-El esquema debe aprobarse antes de generar migraciones. Entidades mínimas:
+## Pagos y membresías
 
-- `profiles`: identidad externa estable, datos de contacto y consentimientos;
-- `roles`, `permissions`, `profile_roles`: control de acceso;
-- `plans`, `subscriptions`: plan, estado, vigencia, renovación y cancelación;
-- `payment_transactions`, `payment_events`, `refunds`: importes, monedas, identificadores e idempotencia;
-- `investigations`, `videos`, `content_categories`: contenido y programación;
-- `complaints`, `complaint_evidence`, `complaint_status_history`: denuncias privadas y trazabilidad;
-- `advertisers`, `listings`, `campaigns`, `ad_click_events`: sección comercial y aprobación;
-- `notifications`: comunicaciones y estado de entrega;
-- `admin_audit_log`: acciones críticas inmutables a nivel de aplicación;
-- `provinces`, `cantons`, `districts`: estructura para un catálogo territorial oficial, versionado y autorizado para publicación.
+1. El usuario autenticado completa un formulario de facturación y Turnstile.
+2. El servidor obtiene plan, precio y moneda de `plan_prices`; el navegador no los puede enviar.
+3. Se persiste una orden Tilopay única antes de solicitar la URL HPP.
+4. El navegador solo recibe una URL HTTPS validada bajo `tilopay.com`.
+5. Callback y webhook se almacenan como una huella deduplicada; no se guarda el cuerpo ni datos de tarjeta.
+6. El backend consulta `/api/v1/consult` con credenciales propias y compara orden, importe y moneda.
+7. Solo entonces marca la transacción aprobada y llama a `grant_tilopay_membership`.
+8. Esa función server-only enlaza la transacción a una suscripción y concede un mes de manera idempotente y serializada.
 
-Decisiones de diseño:
+El flujo implementado es un cobro único que da un mes de acceso, no renovación automática. Reembolsos, contracargos y recurrencia requieren reglas adicionales antes de comercializarlos.
 
-- usar UUID/ULID aleatorios; nunca exponer IDs secuenciales sensibles;
-- índices por propietario, estado, fecha y claves del proveedor;
-- restricciones únicas para evento y transacción del proveedor;
-- historial append-only para estados, pagos y auditoría;
-- evidencias privadas por defecto; solo guardar metadatos en D1 y objetos en R2;
-- separar el código público de seguimiento de la clave interna del caso;
-- eliminación lógica cuando la trazabilidad legal lo requiera y borrado efectivo según la política aprobada.
+## Defensa en profundidad
 
-## 5. Límites de autorización
+- Validación Zod, normalización, listas permitidas, límites de cuerpo y rechazo de campos duplicados/desconocidos.
+- Turnstile y rate limiting atómico por operación, usuario e IP pseudonimizada.
+- CSP, HSTS, `X-Content-Type-Options`, `X-Frame-Options`, COOP, CORP, `Permissions-Policy` y cache privado en rutas sensibles.
+- Auditoría append-only de mutaciones y accesos sensibles, con datos minimizados y HMAC para IP/User-Agent.
+- CI con escaneo de secretos históricos, `npm audit`, lint y build; Dependabot abre actualizaciones.
 
-Cada operación protegida debe resolver en el servidor:
+## Pendiente para producción
 
-1. identidad autenticada;
-2. rol y estado de cuenta;
-3. pertenencia del registro al usuario o permiso administrativo;
-4. estado de suscripción confirmado por base de datos;
-5. validación del cuerpo, tamaño y tipo de archivo;
-6. registro de auditoría cuando corresponda.
-
-Ocultar un botón no es control de acceso. El cliente nunca decidirá si alguien es premium ni recibirá credenciales de D1/R2, claves secretas o URLs permanentes de video.
-
-## 6. Pagos
-
-ONVO es el candidato inicial por su enfoque en Costa Rica; Tilopay permanece como alternativa. No se ha aprobado ningún proveedor ni se afirma compatibilidad final con recurrencia hasta revisar documentación contractual y técnica vigente.
-
-Antes de implementar se requiere:
-
-- cuenta comercial y condiciones aprobadas;
-- credenciales de sandbox;
-- documentación oficial de checkout, recurrencia, webhooks, reembolsos y contracargos;
-- moneda y precio definitivos;
-- política de gracia, vencimiento, reintentos y cancelación;
-- definición contable y de facturación.
-
-Flujo obligatorio:
-
-1. crear intento de pago en el backend con importe y moneda esperados;
-2. redirigir al checkout seguro del proveedor;
-3. tratar la página de retorno solo como información visual;
-4. verificar firma, origen, importe, moneda y referencia del webhook;
-5. registrar el ID de evento con restricción única;
-6. procesar el evento de forma idempotente dentro de una transacción;
-7. activar o renovar la membresía solo después de la confirmación del proveedor;
-8. reconciliar periódicamente estados dudosos.
-
-Nunca almacenar PAN completo, CVV ni credenciales bancarias.
-
-## 7. Denuncias y evidencias
-
-- Privadas por defecto y visibles únicamente para su propietario y roles autorizados.
-- Código de seguimiento independiente del ID interno.
-- Estados con historial y motivo: recibida, en revisión, información solicitada, en investigación, cerrada o rechazada.
-- Evidencias con cuarentena, validación de firma/tipo real, límite de tamaño, análisis antimalware y descarga autorizada.
-- Prohibida la publicación automática. Requiere revisión editorial, minimización de datos, evaluación de interés público y proceso de rectificación.
-- Mostrar canales oficiales para emergencias y aclarar que este servicio no reemplaza al 9-1-1, OIJ, Fuerza Pública, Ministerio Público ni otras autoridades.
-
-## 8. Brechas antes de producción
-
-- esquema D1, migraciones y política de retención;
-- R2 privado, cuarentena y análisis de archivos;
-- roles, MFA administrativa y panel de auditoría;
-- autenticación final aprobada;
-- proveedor de pago probado en sandbox;
-- streaming privado y control de reproducción;
-- correo transaccional y WhatsApp Business;
-- catálogo territorial de fuente oficial con fecha de actualización y permiso de publicación;
-- observabilidad, alertas, límites de abuso y recuperación ante incidentes;
-- términos, privacidad, consentimiento y protocolo editorial con revisión legal;
-- pruebas de restauración, carga, seguridad y aislamiento.
-
-## 9. Decisiones pendientes
-
-| Decisión | Responsable | Bloquea |
-| --- | --- | --- |
-| Nombre, dominio y marca | Cliente | Publicación pública |
-| Datos de contacto vigentes | Cliente | Contacto y WhatsApp |
-| Sites/D1/R2 o Supabase | Cliente + arquitectura | Persistencia y autenticación final |
-| ONVO o Tilopay | Cliente + finanzas + legal | Pagos |
-| Precio y moneda | Cliente | Planes y checkout |
-| Roles y moderadores | Cliente | Administración |
-| Política de denuncias y retención | Cliente + asesoría legal | Recepción de datos reales |
-| Proveedor de video y correo | Cliente + arquitectura | Premium y notificaciones |
-
-## 10. Procedencia de identidad y activos
-
-Fuentes indicadas o enlazadas por el cliente:
-
-- [Facebook autorizado](https://www.facebook.com/share/1FGcVCAAKb/)
-- [Instagram autorizado](https://www.instagram.com/rubenrodriguezoficialdog)
-- [Sitio oficial existente](https://rubenrodriguezoficial.com/)
-
-El sitio existente muestra identidad, fotografías, correo y WhatsApp, pero todos esos elementos se consideran **pendientes de confirmación**. Se deben obtener archivos originales y permisos documentados para cualquier tercero visible.
+- Aplicar la migración y realizar pruebas RLS con cuentas de prueba independientes.
+- Configurar Google OAuth, dominios/redirect URLs, Turnstile y secretos en el entorno alojado.
+- Cargar catálogos con licencia compatible y contratar/operar el análisis antimalware.
+- Obtener de Tilopay la especificación de `OrderHash` y webhook, probarla y añadir su validación criptográfica.
+- Definir legalmente retención, términos, privacidad, soporte, reembolsos y contracargos.
+- Verificar respaldos/restauración, monitoreo y respuesta a incidentes antes de abrir el sitio.

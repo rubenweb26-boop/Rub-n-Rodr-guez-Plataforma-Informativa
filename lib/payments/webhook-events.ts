@@ -1,160 +1,104 @@
-import { and, eq, sql } from "drizzle-orm";
-import { getDb } from "@/db";
-import {
-  paymentProviderEvents,
-  paymentTransactions,
-  subscriptions,
-} from "@/db/schema";
-import {
-  fingerprintWebhookBody,
-  getOnvoProviderEventId,
-  getOnvoProviderOccurredAt,
-  onvoWebhookEventTypes,
-  type OnvoWebhookEvent,
-} from "./onvo";
+import "server-only";
 
-export interface RegisterOnvoWebhookInput {
-  event: OnvoWebhookEvent;
-  rawBody: string;
-}
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { findTilopayTransaction } from "./tilopay-orders";
 
-export interface RegisteredWebhookEvent {
+type ProcessingStatus = "received" | "processed" | "ignored" | "failed";
+
+export type RegisteredTilopayEvent = {
   id: string;
-  providerEventId: string;
   duplicate: boolean;
-  processingStatus: "received" | "ignored";
-}
-
-function stringValue(value: unknown): string | null {
-  return typeof value === "string" && value.length > 0 ? value : null;
-}
-
-function isKnownOnvoEvent(type: string): boolean {
-  return (onvoWebhookEventTypes as readonly string[]).includes(type);
-}
-
-async function findRelatedRecords(event: OnvoWebhookEvent): Promise<{
   transactionId: string | null;
-  subscriptionId: string | null;
-}> {
-  const db = getDb();
-  const providerPaymentIntentId = stringValue(
-    event.data.paymentIntentId ??
-      (event.type.startsWith("payment-intent.") ? event.data.id : null),
-  );
-  const providerSubscriptionId = stringValue(event.data.subscriptionId);
+};
 
-  const [transaction, subscription] = await Promise.all([
-    providerPaymentIntentId
-      ? db
-          .select({ id: paymentTransactions.id })
-          .from(paymentTransactions)
-          .where(
-            and(
-              eq(paymentTransactions.provider, "onvo"),
-              eq(
-                paymentTransactions.providerTransactionId,
-                providerPaymentIntentId,
-              ),
-            ),
-          )
-          .limit(1)
-      : Promise.resolve([]),
-    providerSubscriptionId
-      ? db
-          .select({ id: subscriptions.id })
-          .from(subscriptions)
-          .where(
-            and(
-              eq(subscriptions.provider, "onvo"),
-              eq(
-                subscriptions.providerSubscriptionId,
-                providerSubscriptionId,
-              ),
-            ),
-          )
-          .limit(1)
-      : Promise.resolve([]),
-  ]);
-
-  return {
-    transactionId: transaction[0]?.id ?? null,
-    subscriptionId: subscription[0]?.id ?? null,
-  };
-}
-
-/**
- * Persists receipt only. Deliberately does not mutate a subscription or grant
- * premium access; entitlement changes belong to a separate verified
- * reconciliation processor.
- */
-export async function registerOnvoWebhookEvent({
-  event,
-  rawBody,
-}: RegisterOnvoWebhookInput): Promise<RegisteredWebhookEvent> {
-  const db = getDb();
-  const payloadHash = await fingerprintWebhookBody(rawBody);
-  const providerEventId = getOnvoProviderEventId(event, payloadHash);
-  const processingStatus = isKnownOnvoEvent(event.type)
-    ? ("received" as const)
-    : ("ignored" as const);
-  const related = await findRelatedRecords(event);
+export async function registerTilopayEvent(input: {
+  source: "callback" | "webhook";
+  orderNumber: string | null;
+  eventType: string;
+  payloadHash: string;
+}): Promise<RegisteredTilopayEvent> {
+  const transaction = input.orderNumber
+    ? await findTilopayTransaction(input.orderNumber)
+    : null;
+  const providerEventId = [
+    input.source,
+    input.orderNumber ?? "unknown",
+    input.payloadHash,
+  ].join(":");
+  const supabase = createSupabaseAdminClient();
   const id = crypto.randomUUID();
+  const { error } = await supabase.from("payment_provider_events").insert({
+    id,
+    provider: "tilopay",
+    provider_event_id: providerEventId,
+    event_type: input.eventType,
+    payload_hash: input.payloadHash,
+    // Tilopay's orderHash algorithm and purchase-webhook contract are supplied
+    // privately per merchant. We never claim signature verification here; the
+    // subsequent server-to-server `/consult` call is the trust boundary.
+    signature_verified: false,
+    provider_state_confirmed: false,
+    processing_status: "received",
+    transaction_id: transaction?.id ?? null,
+    attempt_count: 1,
+    last_error: null,
+  });
 
-  const inserted = await db
-    .insert(paymentProviderEvents)
-    .values({
-      id,
-      provider: "onvo",
-      providerEventId,
-      eventType: event.type,
-      payloadHash,
-      signatureVerified: true,
-      processingStatus,
-      transactionId: related.transactionId,
-      subscriptionId: related.subscriptionId,
-      attemptCount: 1,
-      providerOccurredAt: getOnvoProviderOccurredAt(event),
-    })
-    .onConflictDoNothing({
-      target: [
-        paymentProviderEvents.provider,
-        paymentProviderEvents.providerEventId,
-      ],
-    })
-    .returning({ id: paymentProviderEvents.id });
-
-  if (inserted.length > 0) {
-    return { id, providerEventId, duplicate: false, processingStatus };
+  if (!error) {
+    return { id, duplicate: false, transactionId: transaction?.id ?? null };
+  }
+  if (error.code !== "23505") {
+    throw new Error("Unable to persist the Tilopay notification.");
   }
 
-  await db
-    .update(paymentProviderEvents)
-    .set({
-      attemptCount: sql`${paymentProviderEvents.attemptCount} + 1`,
+  const { data: existing, error: readError } = await supabase
+    .from("payment_provider_events")
+    .select("id, attempt_count, transaction_id")
+    .eq("provider", "tilopay")
+    .eq("provider_event_id", providerEventId)
+    .limit(1)
+    .maybeSingle();
+  if (readError || !existing || typeof existing.id !== "string") {
+    throw new Error("Unable to recover the duplicate Tilopay notification.");
+  }
+  await supabase
+    .from("payment_provider_events")
+    .update({
+      attempt_count:
+        typeof existing.attempt_count === "number"
+          ? existing.attempt_count + 1
+          : 2,
     })
-    .where(
-      and(
-        eq(paymentProviderEvents.provider, "onvo"),
-        eq(paymentProviderEvents.providerEventId, providerEventId),
-      ),
-    );
-
-  const existing = await db
-    .select({ id: paymentProviderEvents.id })
-    .from(paymentProviderEvents)
-    .where(
-      and(
-        eq(paymentProviderEvents.provider, "onvo"),
-        eq(paymentProviderEvents.providerEventId, providerEventId),
-      ),
-    )
-    .limit(1);
-
+    .eq("id", existing.id);
   return {
-    id: existing[0]?.id ?? id,
-    providerEventId,
+    id: existing.id,
     duplicate: true,
-    processingStatus,
+    transactionId:
+      typeof existing.transaction_id === "string" ? existing.transaction_id : null,
   };
+}
+
+export async function finishTilopayEvent(
+  eventId: string,
+  status: ProcessingStatus,
+  errorCode: string | null = null,
+  providerStateConfirmed = false,
+  subscriptionId: string | null = null,
+): Promise<void> {
+  const supabase = createSupabaseAdminClient();
+  const { error } = await supabase
+    .from("payment_provider_events")
+    .update({
+      processing_status: status,
+      last_error: errorCode,
+      provider_state_confirmed: providerStateConfirmed,
+      processed_at:
+        status === "processed" || status === "ignored" || status === "failed"
+          ? new Date().toISOString()
+          : null,
+      ...(subscriptionId ? { subscription_id: subscriptionId } : {}),
+    })
+    .eq("id", eventId)
+    .eq("provider", "tilopay");
+  if (error) throw new Error("Unable to finalize the Tilopay notification.");
 }
