@@ -387,9 +387,9 @@ export function SiteHeaderClient({
           aria-label="Rubén Rodríguez, Plataforma Informativa"
         >
           <Image src="/media/ruben-logo-oficial.jpg" alt="" width={74} height={60} priority className="h-[52px] w-[65px] shrink-0 rounded-lg object-contain sm:h-[60px] sm:w-[74px]" />
-          <span className="ml-2 hidden max-w-[150px] flex-col leading-tight text-white sm:flex">
-            <strong className="text-sm font-black sm:text-base">Rubén Rodríguez</strong>
-            <small className="mt-0.5 text-[10px] font-bold uppercase tracking-[0.08em] text-[#ffb9ae]">Información Ciudadana</small>
+          <span className="ml-2 flex max-w-[110px] flex-col leading-tight text-white sm:max-w-[150px]">
+            <strong className="text-xs font-black sm:text-base">Rubén Rodríguez</strong>
+            <small className="mt-0.5 hidden text-[10px] font-bold uppercase tracking-[0.08em] text-[#ffb9ae] sm:block">Información Ciudadana</small>
           </span>
         </Link>
 
