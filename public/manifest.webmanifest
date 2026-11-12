@@ -1,0 +1,12 @@
+{
+  "name": "Rubén Rodríguez Informa",
+  "short_name": "Rubén Informa",
+  "description": "Información ciudadana y denuncias en Costa Rica",
+  "lang": "es-CR",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0c1624",
+  "theme_color": "#0c1624",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

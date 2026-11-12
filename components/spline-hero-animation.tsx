@@ -29,8 +29,8 @@ export function SplineHeroAnimation({
 
   useEffect(() => {
     if (!detectWebGL() || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      setState("fallback");
-      return;
+      const timer = setTimeout(() => setState("fallback"), 0);
+      return () => clearTimeout(timer);
     }
     const observer = new IntersectionObserver(([entry]) => {
       if (entry.isIntersecting) { setActive(true); observer.disconnect(); }

@@ -16,8 +16,14 @@ import {
   Send,
   Video,
   X,
+  ShieldCheck,
+  Award,
+  Wifi,
+  WifiOff,
+  AlertTriangle,
 } from "lucide-react";
 import { TurnstileWidget } from "@/components/turnstile-widget";
+import { OfflineStatusIndicator, useOfflineFormSubmit } from "@/components/offline-status";
 
 type LocationItem = { code: string; name: string };
 
@@ -54,11 +60,15 @@ export function ComplaintForm({
   const [selectedFiles, setSelectedFiles] = useState<{ file: File; previewUrl: string; type: string }[]>([]);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok?: boolean; message: string; trackingCode?: string } | null>(null);
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
+  const { submitForm, isSubmitting, isOffline } = useOfflineFormSubmit();
+
+  // Cargar provincias al montar
   useEffect(() => {
     fetch("/api/locations")
-      .then((res) => res.json())
-      .then((data) => setProvinces(Array.isArray(data) ? data : []))
+      .then((res) => res.json() as Promise<{ items: LocationItem[] }>)
+      .then((data) => setProvinces(Array.isArray(data.items) ? data.items : []))
       .catch(() => {});
   }, []);
 
@@ -68,10 +78,13 @@ export function ComplaintForm({
     setDistrict("");
     setCantons([]);
     setDistricts([]);
+    clearError("province");
+    clearError("canton");
+    clearError("district");
     if (newProvince) {
       fetch(`/api/locations?province=${encodeURIComponent(newProvince)}`)
-        .then((res) => res.json())
-        .then((data) => setCantons(Array.isArray(data) ? data : []))
+        .then((res) => res.json() as Promise<{ items: LocationItem[] }>)
+        .then((data) => setCantons(Array.isArray(data.items) ? data.items : []))
         .catch(() => {});
     }
   }
@@ -80,12 +93,53 @@ export function ComplaintForm({
     setCanton(newCanton);
     setDistrict("");
     setDistricts([]);
+    clearError("canton");
+    clearError("district");
     if (newCanton) {
       fetch(`/api/locations?canton=${encodeURIComponent(newCanton)}`)
-        .then((res) => res.json())
-        .then((data) => setDistricts(Array.isArray(data) ? data : []))
+        .then((res) => res.json() as Promise<{ items: LocationItem[] }>)
+        .then((data) => setDistricts(Array.isArray(data.items) ? data.items : []))
         .catch(() => {});
     }
+  }
+
+  function handleDistrictChange(newDistrict: string) {
+    setDistrict(newDistrict);
+    clearError("district");
+  }
+
+  function handleLocalityChange(e: React.ChangeEvent<HTMLInputElement>) {
+    clearError("locality");
+  }
+
+  function handleApproxLocationChange(e: React.ChangeEvent<HTMLInputElement>) {
+    clearError("approximateLocation");
+  }
+
+  function clearError(field: string) {
+    setFormErrors((prev) => {
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  }
+
+  function validateForm(): boolean {
+    const errors: Record<string, string> = {};
+
+    if (!province) errors.province = "Debe seleccionar una provincia";
+    if (!canton) errors.canton = "Debe seleccionar un cantón";
+    if (!district) errors.district = "Debe seleccionar un distrito";
+    if (!category) errors.category = "Debe seleccionar una categoría";
+    if (category === "other" && !customCategory.trim()) {
+      errors.customCategory = "Debe especificar la categoría";
+    }
+
+    // Validar locality y approximateLocation (opcionales pero recomendados)
+    // No son requeridos según el schema actual
+
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
   }
 
   function handleFileSelection(e: React.ChangeEvent<HTMLInputElement>) {
@@ -115,6 +169,10 @@ export function ComplaintForm({
     event.preventDefault();
     if (!enabled) return;
 
+    if (!validateForm()) {
+      return;
+    }
+
     setBusy(true);
     setResult(null);
 
@@ -128,26 +186,34 @@ export function ComplaintForm({
     });
 
     try {
-      const response = await fetch("/api/complaints", { method: "POST", body: formData });
-      const payload = (await response.json()) as { error?: string; trackingCode?: string };
+      const submissionResult = await submitForm(formData);
 
-      if (!response.ok) {
-        throw new Error(payload.error || "No fue posible registrar la denuncia. Revisa los datos.");
+      if (submissionResult.success) {
+        if (submissionResult.offline) {
+          setResult({
+            ok: true,
+            message: "Tu reporte fue guardado localmente. Se sincronizará automáticamente cuando recuperes la conexión a internet.",
+            trackingCode: submissionResult.trackingCode,
+          });
+        } else {
+          setResult({
+            ok: true,
+            message: "Tu reporte fue recibido e ingresado al sistema con éxito.",
+            trackingCode: submissionResult.trackingCode,
+          });
+        }
+
+        formElement.reset();
+        setProvince("");
+        setCanton("");
+        setDistrict("");
+        setCategory("");
+        setCustomCategory("");
+        setSelectedFiles([]);
+        setFormErrors({});
+      } else {
+        throw new Error(submissionResult.error || "Error inesperado al enviar.");
       }
-
-      setResult({
-        ok: true,
-        message: "Tu reporte fue recibido e ingresado al sistema con éxito.",
-        trackingCode: payload.trackingCode,
-      });
-
-      formElement.reset();
-      setProvince("");
-      setCanton("");
-      setDistrict("");
-      setCategory("");
-      setCustomCategory("");
-      setSelectedFiles([]);
     } catch (err) {
       setResult({
         ok: false,
@@ -196,27 +262,37 @@ export function ComplaintForm({
         </div>
       )}
 
+      {/* Offline Status Indicator */}
+      <OfflineStatusIndicator />
+
       <form onSubmit={handleSubmit} className="space-y-8" noValidate>
-        {/* Paso 1: Ubicación Territorial */}
+        {/* Paso 1: Ubicación Territorial - Mejorada */}
         <section>
           <div className="mb-4 flex items-center gap-2">
             <span className="flex size-7 items-center justify-center rounded-full bg-[#d84d3d] text-xs font-black text-white">
               1
             </span>
             <h2 className="text-xl font-black text-[#142235]">Ubicación del Hecho</h2>
+            <span className="ml-auto inline-flex items-center gap-1.5 text-xs font-medium text-[#556377]">
+              <MapPin size={14} />
+              Catálogo territorial oficial de Costa Rica
+            </span>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-3">
             <div>
               <label className="text-xs font-bold uppercase tracking-wider text-[#556377]">
-                Provincia *
+                Provincia <span className="text-rose-600">*</span>
               </label>
               <select
                 required
                 name="province"
                 value={province}
                 onChange={(e) => handleProvinceChange(e.target.value)}
-                className="mt-1.5 w-full rounded-xl border border-[#d6cfc5] bg-white px-3.5 py-3 text-sm font-semibold text-[#142235] focus:border-[#d84d3d] focus:outline-none focus:ring-2 focus:ring-[#d84d3d]/20"
+                onBlur={() => validateForm && !province && setFormErrors(prev => ({...prev, province: "Debe seleccionar una provincia"}))}
+                className={`mt-1.5 w-full rounded-xl border bg-white px-3.5 py-3 text-sm font-semibold text-[#142235] focus:border-[#d84d3d] focus:outline-none focus:ring-2 focus:ring-[#d84d3d]/20 ${
+                  formErrors.province ? "border-rose-500" : "border-[#d6cfc5]"
+                }`}
               >
                 <option value="">Selecciona Provincia</option>
                 {provinces.map((p) => (
@@ -225,11 +301,16 @@ export function ComplaintForm({
                   </option>
                 ))}
               </select>
+              {formErrors.province && (
+                <p className="mt-1 text-xs text-rose-600 flex items-center gap-1">
+                  <AlertCircle size={10} /> {formErrors.province}
+                </p>
+              )}
             </div>
 
             <div>
               <label className="text-xs font-bold uppercase tracking-wider text-[#556377]">
-                Cantón *
+                Cantón <span className="text-rose-600">*</span>
               </label>
               <select
                 required
@@ -237,7 +318,10 @@ export function ComplaintForm({
                 value={canton}
                 disabled={!province}
                 onChange={(e) => handleCantonChange(e.target.value)}
-                className="mt-1.5 w-full rounded-xl border border-[#d6cfc5] bg-white px-3.5 py-3 text-sm font-semibold text-[#142235] disabled:bg-slate-100 disabled:opacity-60 focus:border-[#d84d3d] focus:outline-none focus:ring-2 focus:ring-[#d84d3d]/20"
+                onBlur={() => validateForm && province && !canton && setFormErrors(prev => ({...prev, canton: "Debe seleccionar un cantón"}))}
+                className={`mt-1.5 w-full rounded-xl border bg-white px-3.5 py-3 text-sm font-semibold text-[#142235] focus:border-[#d84d3d] focus:outline-none focus:ring-2 focus:ring-[#d84d3d]/20 ${
+                  !province ? "bg-slate-100 opacity-60" : formErrors.canton ? "border-rose-500" : "border-[#d6cfc5]"
+                }`}
               >
                 <option value="">Selecciona Cantón</option>
                 {cantons.map((c) => (
@@ -246,19 +330,27 @@ export function ComplaintForm({
                   </option>
                 ))}
               </select>
+              {formErrors.canton && (
+                <p className="mt-1 text-xs text-rose-600 flex items-center gap-1">
+                  <AlertCircle size={10} /> {formErrors.canton}
+                </p>
+              )}
             </div>
 
             <div>
               <label className="text-xs font-bold uppercase tracking-wider text-[#556377]">
-                Distrito *
+                Distrito <span className="text-rose-600">*</span>
               </label>
               <select
                 required
                 name="district"
                 value={district}
                 disabled={!canton}
-                onChange={(e) => setDistrict(e.target.value)}
-                className="mt-1.5 w-full rounded-xl border border-[#d6cfc5] bg-white px-3.5 py-3 text-sm font-semibold text-[#142235] disabled:bg-slate-100 disabled:opacity-60 focus:border-[#d84d3d] focus:outline-none focus:ring-2 focus:ring-[#d84d3d]/20"
+                onChange={(e) => handleDistrictChange(e.target.value)}
+                onBlur={() => validateForm && canton && !district && setFormErrors(prev => ({...prev, district: "Debe seleccionar un distrito"}))}
+                className={`mt-1.5 w-full rounded-xl border bg-white px-3.5 py-3 text-sm font-semibold text-[#142235] focus:border-[#d84d3d] focus:outline-none focus:ring-2 focus:ring-[#d84d3d]/20 ${
+                  !canton ? "bg-slate-100 opacity-60" : formErrors.district ? "border-rose-500" : "border-[#d6cfc5]"
+                }`}
               >
                 <option value="">Selecciona Distrito</option>
                 {districts.map((d) => (
@@ -267,6 +359,11 @@ export function ComplaintForm({
                   </option>
                 ))}
               </select>
+              {formErrors.district && (
+                <p className="mt-1 text-xs text-rose-600 flex items-center gap-1">
+                  <AlertCircle size={10} /> {formErrors.district}
+                </p>
+              )}
             </div>
           </div>
 
@@ -280,8 +377,10 @@ export function ComplaintForm({
                 name="locality"
                 maxLength={160}
                 placeholder="Ej: Barrio San José, 200m este de la escuela"
+                onChange={handleLocalityChange}
                 className="mt-1.5 w-full rounded-xl border border-[#d6cfc5] bg-white px-3.5 py-3 text-sm font-semibold text-[#142235] focus:border-[#d84d3d] focus:outline-none focus:ring-2 focus:ring-[#d84d3d]/20"
               />
+              <p className="mt-1 text-[10px] text-[#8ea4be]">Opcional pero recomendado para ubicar el hecho con precisión</p>
             </div>
 
             <div>
@@ -293,8 +392,10 @@ export function ComplaintForm({
                 name="approximateLocation"
                 maxLength={240}
                 placeholder="Ej: Portón negro, frente al taller mecánico"
+                onChange={handleApproxLocationChange}
                 className="mt-1.5 w-full rounded-xl border border-[#d6cfc5] bg-white px-3.5 py-3 text-sm font-semibold text-[#142235] focus:border-[#d84d3d] focus:outline-none focus:ring-2 focus:ring-[#d84d3d]/20"
               />
+              <p className="mt-1 text-[10px] text-[#8ea4be]">Opcional: coordenadas, hitos visibles, etc.</p>
             </div>
           </div>
         </section>
@@ -313,7 +414,7 @@ export function ComplaintForm({
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label className="text-xs font-bold uppercase tracking-wider text-[#556377]">
-                Tipo de Situación *
+                Tipo de Situación <span className="text-rose-600">*</span>
               </label>
               <select
                 required
@@ -329,6 +430,11 @@ export function ComplaintForm({
                   </option>
                 ))}
               </select>
+              {formErrors.category && (
+                <p className="mt-1 text-xs text-rose-600 flex items-center gap-1">
+                  <AlertCircle size={10} /> {formErrors.category}
+                </p>
+              )}
             </div>
 
             <div>
@@ -347,7 +453,7 @@ export function ComplaintForm({
           {category === "other" && (
             <div className="mt-4 animate-in fade-in">
               <label className="text-xs font-bold uppercase tracking-wider text-[#b74033]">
-                Especifica la categoría
+                Especifica la categoría <span className="text-rose-600">*</span>
               </label>
               <input
                 type="text"
@@ -356,6 +462,11 @@ export function ComplaintForm({
                 onChange={(e) => setCustomCategory(e.target.value)}
                 className="mt-1.5 w-full rounded-xl border border-[#b74033]/40 bg-rose-50/30 px-3.5 py-3 text-sm font-semibold text-[#142235] focus:border-[#d84d3d] focus:outline-none focus:ring-2 focus:ring-[#d84d3d]/20"
               />
+              {formErrors.customCategory && (
+                <p className="mt-1 text-xs text-rose-600 flex items-center gap-1">
+                  <AlertCircle size={10} /> {formErrors.customCategory}
+                </p>
+              )}
             </div>
           )}
         </section>
@@ -374,7 +485,7 @@ export function ComplaintForm({
           <div className="space-y-4">
             <div>
               <label className="text-xs font-bold uppercase tracking-wider text-[#556377]">
-                Título Breve del Caso *
+                Título Breve del Caso <span className="text-rose-600">*</span>
               </label>
               <input
                 required
@@ -388,7 +499,7 @@ export function ComplaintForm({
 
             <div>
               <label className="text-xs font-bold uppercase tracking-wider text-[#556377]">
-                Descripción Detallada *
+                Descripción Detallada <span className="text-rose-600">*</span>
               </label>
               <textarea
                 required
@@ -413,7 +524,7 @@ export function ComplaintForm({
                   Haz clic para seleccionar o arrastra tus archivos aquí
                 </p>
                 <p className="mt-1 text-xs text-[#6e7b8f]">
-                  Hasta 4 archivos (JPG, PNG, PDF, MP4). Máximo 12 MB por archivo.
+                  Hasta 4 archivos (JPG, PNG, PDF, MP4, WebM). Máximo 12 MB por archivo.
                 </p>
                 <input
                   type="file"
@@ -471,6 +582,10 @@ export function ComplaintForm({
         {/* Declaración y Seguridad */}
         <div className="rounded-2xl bg-[#f5f1ea] p-5 space-y-3">
           <label className="flex items-start gap-3 cursor-pointer text-xs font-semibold text-[#455263]">
+            <input required type="checkbox" name="urgentNotice" className="mt-0.5 size-4 rounded text-[#d84d3d]" />
+            <span>Entiendo que este canal no atiende emergencias. Si existe peligro inmediato, llamaré al 9-1-1.</span>
+          </label>
+          <label className="flex items-start gap-3 cursor-pointer text-xs font-semibold text-[#455263]">
             <input required type="checkbox" name="truth" className="mt-0.5 size-4 rounded text-[#d84d3d]" />
             <span>
               Declaro que la información aportada es verídica y de buena fe, conforme a los{" "}
@@ -492,6 +607,7 @@ export function ComplaintForm({
         </div>
 
         {turnstileSiteKey && <TurnstileWidget siteKey={turnstileSiteKey} action="complaint_submit" />}
+        {!enabled && <p role="status" className="text-sm font-semibold text-amber-800">La recepción de denuncias no está disponible hasta completar la configuración de seguridad.</p>}
 
         {/* Botones de acción */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pt-4">

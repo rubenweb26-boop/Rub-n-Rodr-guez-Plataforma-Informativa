@@ -1,26 +1,30 @@
 import type { Metadata } from "next";
 import { CookieBanner } from "@/components/cookie-banner";
+import { PwaRegister } from "@/components/pwa-register";
 import "./globals.css";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://rubenweb-cr.royaldoor1.chatgpt.site"),
   title: {
-    default: "RubénWeb | Denuncias e información ciudadana",
-    template: "%s | RubénWeb",
+    default: "Rubén Rodríguez – Plataforma Informativa",
+    template: "%s | Rubén Rodríguez – Plataforma Informativa",
   },
   description:
-    "Plataforma de Rubén Rodríguez para denuncias, información ciudadana e investigaciones en Costa Rica.",
+    "Plataforma oficial de Rubén Rodríguez para denuncias ciudadanas, investigaciones, información pública y participación en Costa Rica.",
   keywords: [
     "Rubén Rodríguez",
     "Costa Rica",
+    "denuncias ciudadanas",
     "investigación ciudadana",
-    "investigación",
     "participación ciudadana",
+    "plataforma informativa",
+    "bienestar animal",
+    "fiscalización",
   ],
   openGraph: {
-    title: "RubénWeb | Denuncias e información ciudadana",
+    title: "Rubén Rodríguez – Plataforma Informativa",
     description:
-      "Denuncias, investigaciones e información ciudadana en Costa Rica.",
+      "Plataforma oficial de denuncia ciudadana, investigaciones e información pública en Costa Rica.",
     locale: "es_CR",
     type: "website",
   },
@@ -28,6 +32,7 @@ export const metadata: Metadata = {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",
   },
+  manifest: "/manifest.webmanifest",
 };
 
 export default function RootLayout({
@@ -40,6 +45,7 @@ export default function RootLayout({
       <body>
         {children}
         <CookieBanner />
+        <PwaRegister />
       </body>
     </html>
   );

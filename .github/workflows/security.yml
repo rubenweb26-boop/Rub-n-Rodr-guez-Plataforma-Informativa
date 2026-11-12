@@ -46,3 +46,13 @@ jobs:
 
       - name: Build production artifact
         run: npm run build
+
+      - name: Install private application dependencies
+        run: |
+          npm ci --prefix CRM
+          npm ci --prefix backend
+
+      - name: Build CRM and verify private API
+        run: |
+          npm run build --prefix CRM
+          npm test --prefix backend

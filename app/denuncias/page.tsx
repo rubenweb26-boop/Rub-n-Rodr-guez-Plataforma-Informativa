@@ -6,21 +6,20 @@ import { AuthButtons } from "@/components/auth-buttons";
 import { getAvailableAuthProviders } from "@/lib/auth/available-providers";
 import { PageShell } from "@/components/page-shell";
 import { getCurrentUser } from "@/lib/auth/user";
-import { getTurnstileSiteKey } from "@/lib/security/turnstile";
+import { getTurnstileSiteKey, isTurnstileConfigured } from "@/lib/security/turnstile";
 import { ComplaintForm } from "./complaint-form";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
-  title: "Presentar Denuncia Ciudadana | Rubén Rodríguez",
+  title: "Presentar Denuncia Ciudadana | Rubén Rodríguez – Plataforma Informativa",
   description: "Formulario oficial y confidencial para reportar situaciones de maltrato animal e interés público en Costa Rica.",
 };
 
 export default async function ComplaintsPage() {
   const user = await getCurrentUser();
   const availableProviders = await getAvailableAuthProviders();
-  const enabled = env.COMPLAINT_INTAKE_ENABLED === "true";
-  const rawTurnstile = getTurnstileSiteKey();
-  const turnstileSiteKey = rawTurnstile || "1x00000000000000000000AA";
+  const enabled = env.COMPLAINT_INTAKE_ENABLED === "true" && isTurnstileConfigured();
+  const turnstileSiteKey = getTurnstileSiteKey();
 
   return (
     <PageShell>

@@ -1,0 +1,8 @@
+{
+  "name": "rubenweb-private-api",
+  "private": true,
+  "type": "module",
+  "scripts": { "start": "node src/server.mjs", "dev": "node --watch src/server.mjs", "test": "node --test" },
+  "dependencies": { "@supabase/supabase-js": "^2.118.0" },
+  "engines": { "node": ">=22.13.0" }
+}

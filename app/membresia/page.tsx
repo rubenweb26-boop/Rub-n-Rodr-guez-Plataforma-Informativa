@@ -4,7 +4,7 @@ import { getCurrentUser } from "@/lib/auth/user";
 import { MembershipPricingSection } from "@/components/membership-pricing-section";
 
 export const metadata: Metadata = {
-  title: "Membresías | Rubén Rodríguez",
+  title: "Membresías | Rubén Rodríguez – Plataforma Informativa",
   description: "Planes de membresía ciudadana y comercial para apoyar la defensa animal y fiscalización ciudadana.",
 };
 

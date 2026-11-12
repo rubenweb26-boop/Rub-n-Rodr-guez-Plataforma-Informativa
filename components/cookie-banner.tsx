@@ -23,17 +23,19 @@ export function CookieBanner() {
   const [marketing, setMarketing] = useState(false);
 
   useEffect(() => {
-    setMounted(true);
+    const mountTimer = setTimeout(() => setMounted(true), 0);
     try {
       const consent = localStorage.getItem(STORAGE_KEY);
       if (!consent) {
         const timer = setTimeout(() => setVisible(true), 600);
-        return () => clearTimeout(timer);
+        return () => { clearTimeout(timer); clearTimeout(mountTimer); };
       }
     } catch {
       // localStorage deshabilitado — mostrar aviso igualmente
-      setVisible(true);
+      const showTimer = setTimeout(() => setVisible(true), 0);
+      return () => { clearTimeout(showTimer); clearTimeout(mountTimer); };
     }
+    return () => clearTimeout(mountTimer);
   }, []);
 
   useEffect(() => {

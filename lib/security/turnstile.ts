@@ -12,6 +12,10 @@ export function getTurnstileSiteKey(): string | null {
   return env.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim() || null;
 }
 
+export function isTurnstileConfigured(): boolean {
+  return Boolean(getTurnstileSiteKey() && env.TURNSTILE_SECRET_KEY?.trim());
+}
+
 function expectedHostname(request: Request): string | null {
   const configured = env.TURNSTILE_EXPECTED_HOSTNAME?.trim().toLowerCase();
   if (configured) return configured;
@@ -28,11 +32,7 @@ export async function verifyTurnstile(
   expectedAction: string,
 ): Promise<boolean> {
   const secret = env.TURNSTILE_SECRET_KEY?.trim();
-  // Cloudflare test keys or dev/bypass test mode
-  if (token === "test-token" || secret === "1x0000000000000000000000000000000AA" || !secret) {
-    return true;
-  }
-  if (!token || token.length > 2048) return false;
+  if (!isTurnstileConfigured() || !secret || !token || token.length > 2048) return false;
   const hostname = expectedHostname(request);
   if (!hostname) return false;
 

@@ -1,0 +1,10 @@
+{
+  "name": "rubenweb-crm",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": { "dev": "vite --host 127.0.0.1 --port 5174", "build": "tsc --noEmit && vite build", "preview": "vite preview --host 127.0.0.1 --port 5174" },
+  "dependencies": { "@supabase/supabase-js": "^2.118.0", "exceljs": "^4.4.0", "lucide-react": "^0.468.0", "react": "19.3.1", "react-dom": "19.3.1", "recharts": "^3.8.0" },
+  "devDependencies": { "@types/react": "19.2.14", "@types/react-dom": "19.2.3", "@vitejs/plugin-react": "^6.0.2", "typescript": "5.9.3", "vite": "^8.3.5" },
+  "engines": { "node": ">=22.13.0" }
+}

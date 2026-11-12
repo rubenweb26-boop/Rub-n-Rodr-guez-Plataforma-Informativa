@@ -1,5 +1,12 @@
 # Dependencies
 /node_modules/
+/CRM/node_modules/
+/backend/node_modules/
+/CRM/dist/
+/CRM/.env*
+!/CRM/.env.example
+/backend/.env*
+!/backend/.env.example
 /.pnp
 .pnp.*
 # Keep authored Yarn tooling if the project adopts Yarn.

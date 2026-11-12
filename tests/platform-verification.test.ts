@@ -3,7 +3,6 @@ import test from "node:test";
 import { getApprovedAdvertisers, getApprovedProducts } from "../lib/data/advertisers";
 import { getPublishedInvestigations, getInvestigationBySlug } from "../lib/data/investigations";
 import { ONVO_PLANS } from "../lib/payments/onvo";
-import { generateWhatsAppBotReply, WhatsAppIncomingMessage } from "../lib/whatsapp/bot";
 
 // ---------------------------------------------------------------------------
 // 1. Complaints & Territorial Integrity
@@ -92,47 +91,4 @@ test("ONVO Pay plans are correctly priced at ₡3.500 CRC in minor units", () =>
   const minorUnitsCitizen = ONVO_PLANS.membership_citizen.amountCrc * 100;
   assert.equal(minorUnitsCitizen, 350000);
   assert.equal(ONVO_PLANS.membership_citizen.interval, "month");
-});
-
-// ---------------------------------------------------------------------------
-// 5. WhatsApp Business Bot
-// ---------------------------------------------------------------------------
-
-test("WhatsApp Bot returns structured menu on greeting", async () => {
-  const msg: WhatsAppIncomingMessage = {
-    from: "50688880000",
-    id: "wamid.123",
-    timestamp: "1234567890",
-    text: "Hola",
-  };
-  const reply = await generateWhatsAppBotReply(msg);
-  assert.ok(reply.includes("Plataforma Oficial de Rubén Rodríguez"));
-  assert.ok(reply.includes("Membresías y suscripción mensual (₡3.500)"));
-  assert.ok(reply.includes("Cómo presentar una denuncia ciudadana"));
-});
-
-test("WhatsApp Bot handles membership inquiry option 1", async () => {
-  const msg: WhatsAppIncomingMessage = {
-    from: "50688880000",
-    id: "wamid.124",
-    timestamp: "1234567890",
-    text: "1",
-  };
-  const reply = await generateWhatsAppBotReply(msg);
-  assert.ok(reply.includes("₡3.500 al mes"));
-  assert.ok(reply.includes("Membresía Ciudadana"));
-  assert.ok(reply.includes("Membresía Comercial"));
-  assert.ok(reply.includes("https://rubenrodriguezoficial.com/membresia"));
-});
-
-test("WhatsApp Bot handles human assistance option 5", async () => {
-  const msg: WhatsAppIncomingMessage = {
-    from: "50688880000",
-    id: "wamid.125",
-    timestamp: "1234567890",
-    text: "5",
-  };
-  const reply = await generateWhatsAppBotReply(msg);
-  assert.ok(reply.includes("Atención Personalizada"));
-  assert.ok(reply.includes("equipo de coordinación"));
 });

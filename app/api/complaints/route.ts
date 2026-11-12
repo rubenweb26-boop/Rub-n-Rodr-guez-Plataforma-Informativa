@@ -17,7 +17,7 @@ import {
   RequestBodyTooLargeError,
 } from "@/lib/security/origin";
 import { checkRateLimit } from "@/lib/security/rate-limit";
-import { verifyTurnstile } from "@/lib/security/turnstile";
+import { isTurnstileConfigured, verifyTurnstile } from "@/lib/security/turnstile";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -114,7 +114,7 @@ async function sha256(bytes: Uint8Array): Promise<string> {
 
 export async function POST(request: Request) {
   const requestId = request.headers.get("cf-ray") ?? crypto.randomUUID();
-  if (env.COMPLAINT_INTAKE_ENABLED !== "true") {
+  if (env.COMPLAINT_INTAKE_ENABLED !== "true" || !isTurnstileConfigured()) {
     return jsonError(
       "La recepción de información sensible permanece desactivada.",
       503,
@@ -198,7 +198,7 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return jsonError("Revisa los campos obligatorios y sus límites.", 400, requestId);
   }
-  if (!(await verifyTurnstile(parsed.data.turnstileToken, request, "submit_complaint"))) {
+  if (!(await verifyTurnstile(parsed.data.turnstileToken, request, "complaint_submit"))) {
     return jsonError("No fue posible verificar que eres una persona.", 403, requestId);
   }
 
@@ -214,44 +214,18 @@ export async function POST(request: Request) {
   }
 
   const supabase = await createSupabaseServerClient();
-  const [category, province, canton, district] = await Promise.all([
-    supabase
-      .from("complaint_categories")
-      .select("code")
-      .eq("code", parsed.data.category)
-      .eq("is_active", true)
-      .maybeSingle(),
-    supabase
-      .from("provinces")
-      .select("code")
-      .eq("code", parsed.data.province)
-      .eq("is_active", true)
-      .maybeSingle(),
-    supabase
-      .from("cantons")
-      .select("code")
-      .eq("code", parsed.data.canton)
-      .eq("province_code", parsed.data.province)
-      .eq("is_active", true)
-      .maybeSingle(),
-    supabase
-      .from("districts")
-      .select("code")
-      .eq("code", parsed.data.district)
-      .eq("canton_code", parsed.data.canton)
-      .eq("is_active", true)
-      .maybeSingle(),
+
+  const [categoryResult, provinceResult, cantonResult, districtResult] = await Promise.all([
+    supabase.from("complaint_categories").select("code").eq("code", parsed.data.category).eq("is_active", true).maybeSingle(),
+    supabase.from("provinces").select("code").eq("code", parsed.data.province).eq("is_active", true).maybeSingle(),
+    supabase.from("cantons").select("code").eq("code", parsed.data.canton).eq("province_code", parsed.data.province).eq("is_active", true).maybeSingle(),
+    supabase.from("districts").select("code").eq("code", parsed.data.district).eq("canton_code", parsed.data.canton).eq("is_active", true).maybeSingle(),
   ]);
-  if (
-    category.error ||
-    province.error ||
-    canton.error ||
-    district.error ||
-    !category.data ||
-    !province.data ||
-    !canton.data ||
-    !district.data
-  ) {
+
+  if (categoryResult.error || provinceResult.error || cantonResult.error || districtResult.error) {
+    return jsonError("El catálogo territorial no está disponible.", 503, requestId);
+  }
+  if (!categoryResult.data || !provinceResult.data || !cantonResult.data || !districtResult.data) {
     return jsonError("Selecciona una ubicación y categoría válidas.", 400, requestId);
   }
 
@@ -291,42 +265,53 @@ export async function POST(request: Request) {
     }
     complaintId = created.complaint_id;
 
-    for (const file of files) {
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      const detectedType = detectAllowedFileType(bytes);
-      if (!detectedType || !fileMatchesType(file, detectedType)) {
-        throw new Error("file_type_rejected");
-      }
+    // Prioridad 2: Subida y registro en paralelo (Batch / Promesas concurrentes)
+    const admin = createSupabaseAdminClient();
+    const evidenceRows = await Promise.all(
+      files.map(async (file) => {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const detectedType = detectAllowedFileType(bytes);
+        if (!detectedType || !fileMatchesType(file, detectedType)) {
+          throw new Error("file_type_rejected");
+        }
 
-      const storagePath = `${user.id}/${complaintId}/${crypto.randomUUID()}.${extensionForType(detectedType)}`;
-      const upload = await supabase.storage.from(STORAGE_BUCKET).upload(storagePath, bytes, {
-        cacheControl: "0",
-        contentType: detectedType,
-        upsert: false,
-      });
-      if (upload.error) throw new Error("file_upload_failed");
-      storedPaths.push(storagePath);
+        const storagePath = `${user.id}/${complaintId}/${crypto.randomUUID()}.${extensionForType(detectedType)}`;
+        const upload = await supabase.storage.from(STORAGE_BUCKET).upload(storagePath, bytes, {
+          cacheControl: "0",
+          contentType: detectedType,
+          upsert: false,
+        });
+        if (upload.error) throw new Error("file_upload_failed");
+        storedPaths.push(storagePath);
 
-      const encryptedFilename = await encryptSensitiveJson(
-        { filename: safeAttachmentName(file.name) },
-        "complaint-filename",
-      );
-      const admin = createSupabaseAdminClient();
-      const evidence = await admin.rpc("register_complaint_evidence", {
-        p_complaint_id: complaintId,
-        p_uploaded_by_profile_id: user.id,
-        p_storage_object_path: storagePath,
-        p_encrypted_original_filename: encryptedFilename,
-        p_filename_encryption_key_version:
-          env.DATA_ENCRYPTION_KEY_VERSION?.trim() || "v1",
-        p_detected_mime_type: detectedType,
-        p_size_bytes: file.size,
-        p_sha256: await sha256(bytes),
-      });
-      if (evidence.error) throw new Error("evidence_insert_failed");
-    }
+        const encryptedFilename = await encryptSensitiveJson(
+          { filename: safeAttachmentName(file.name) },
+          "complaint-filename",
+        );
+        const fileSha256 = await sha256(bytes);
 
-    const auditOk = await recordAuditEvent({
+        return {
+          p_complaint_id: complaintId,
+          p_uploaded_by_profile_id: user.id,
+          p_storage_object_path: storagePath,
+          p_encrypted_original_filename: encryptedFilename,
+          p_filename_encryption_key_version: env.DATA_ENCRYPTION_KEY_VERSION?.trim() || "v1",
+          p_detected_mime_type: detectedType,
+          p_size_bytes: file.size,
+          p_sha256: fileSha256,
+        };
+      })
+    );
+
+    await Promise.all(
+      evidenceRows.map(async (row) => {
+        const evidence = await admin.rpc("register_complaint_evidence", row);
+        if (evidence.error) throw new Error("evidence_insert_failed");
+      })
+    );
+
+    // Prioridad 3: Auditoría asíncrona (No bloquea la respuesta)
+    void recordAuditEvent({
       actorId: user.id,
       action: "complaint.create",
       resourceType: "complaint",
@@ -335,8 +320,7 @@ export async function POST(request: Request) {
       requestId,
       metadata: { evidence_count: files.length },
       requestHeaders: request.headers,
-    });
-    if (!auditOk) throw new Error("audit_write_failed");
+    }).catch(() => {});
 
     return NextResponse.json(
       { ok: true, trackingCode: created.tracking_code },

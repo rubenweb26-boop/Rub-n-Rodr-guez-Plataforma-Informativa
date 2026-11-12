@@ -1,0 +1,193 @@
+name: CI - Test & Lint
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  NODE_VERSION: '22.13.0'
+
+jobs:
+  lint-and-typecheck:
+    name: Lint & TypeCheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: TypeScript type check
+        run: npx tsc --noEmit
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm run test:unit
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          DATA_ENCRYPTION_KEY_V1: ${{ secrets.DATA_ENCRYPTION_KEY_V1 }}
+          DATA_ENCRYPTION_KEY_VERSION: ${{ secrets.DATA_ENCRYPTION_KEY_VERSION }}
+          AUDIT_HMAC_KEY: ${{ secrets.AUDIT_HMAC_KEY }}
+          RATE_LIMIT_HMAC_KEY: ${{ secrets.RATE_LIMIT_HMAC_KEY }}
+          ONVO_SECRET_KEY: ${{ secrets.ONVO_SECRET_KEY }}
+          ONVO_WEBHOOK_SECRET: ${{ secrets.ONVO_WEBHOOK_SECRET }}
+          CRM_ORIGIN: ${{ secrets.CRM_ORIGIN }}
+          COMPLAINT_INTAKE_ENABLED: ${{ secrets.COMPLAINT_INTAKE_ENABLED }}
+          NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${{ secrets.NEXT_PUBLIC_TURNSTILE_SITE_KEY }}
+          TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
+
+  integration-tests:
+    name: Integration Tests (requires Supabase)
+    runs-on: ubuntu-latest
+    if: ${{ secrets.SUPABASE_URL != '' }}
+    services:
+      # Optionally spin up a local Supabase instance for integration tests
+      # supabase:
+      #   image: supabase/postgres:15
+      #   env:
+      #     POSTGRES_PASSWORD: postgres
+      #   ports:
+      #     - 5432:5432
+      #   options: >-
+      #     --health-cmd="pg_isready -U postgres"
+      #     --health-interval=10s
+      #     --health-timeout=5s
+      #     --health-retries=5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run integration tests
+        run: npm run test:integration
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          DATA_ENCRYPTION_KEY_V1: ${{ secrets.DATA_ENCRYPTION_KEY_V1 }}
+          DATA_ENCRYPTION_KEY_VERSION: ${{ secrets.DATA_ENCRYPTION_KEY_VERSION }}
+          AUDIT_HMAC_KEY: ${{ secrets.AUDIT_HMAC_KEY }}
+          RATE_LIMIT_HMAC_KEY: ${{ secrets.RATE_LIMIT_HMAC_KEY }}
+          ONVO_SECRET_KEY: ${{ secrets.ONVO_SECRET_KEY }}
+          ONVO_WEBHOOK_SECRET: ${{ secrets.ONVO_WEBHOOK_SECRET }}
+          CRM_ORIGIN: ${{ secrets.CRM_ORIGIN }}
+          COMPLAINT_INTAKE_ENABLED: ${{ secrets.COMPLAINT_INTAKE_ENABLED }}
+          NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${{ secrets.NEXT_PUBLIC_TURNSTILE_SITE_KEY }}
+          TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
+
+  load-test:
+    name: Load Test (k6)
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup k6
+        uses: grafana/k6-action@v0.2.0
+
+      - name: Run load test
+        run: k6 run test-data/load_test.js
+        env:
+          K6_WEB_DASHBOARD: true
+          K6_WEB_DASHBOARD_EXPORT: html-report.html
+
+      - name: Upload k6 report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k6-load-test-report
+          path: html-report.html
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [lint-and-typecheck, unit-tests]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build application
+        run: npm run build
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          DATA_ENCRYPTION_KEY_V1: ${{ secrets.DATA_ENCRYPTION_KEY_V1 }}
+          DATA_ENCRYPTION_KEY_VERSION: ${{ secrets.DATA_ENCRYPTION_KEY_VERSION }}
+          AUDIT_HMAC_KEY: ${{ secrets.AUDIT_HMAC_KEY }}
+          RATE_LIMIT_HMAC_KEY: ${{ secrets.RATE_LIMIT_HMAC_KEY }}
+          ONVO_SECRET_KEY: ${{ secrets.ONVO_SECRET_KEY }}
+          ONVO_WEBHOOK_SECRET: ${{ secrets.ONVO_WEBHOOK_SECRET }}
+          CRM_ORIGIN: ${{ secrets.CRM_ORIGIN }}
+          COMPLAINT_INTAKE_ENABLED: ${{ secrets.COMPLAINT_INTAKE_ENABLED }}
+          NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${{ secrets.NEXT_PUBLIC_TURNSTILE_SITE_KEY }}
+          TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
+
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run npm audit
+        run: npm run security:audit
+
+      - name: Scan for secrets
+        run: npm run security:secrets

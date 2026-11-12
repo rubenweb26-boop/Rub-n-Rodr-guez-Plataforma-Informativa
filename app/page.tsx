@@ -30,7 +30,7 @@ export default function Home() {
           <div className="container-shell relative grid min-h-[620px] items-center gap-12 py-16 lg:grid-cols-[1fr_1fr] lg:py-24">
             <div className="max-w-[620px]">
               <span className="inline-flex items-center gap-2 rounded-full border border-[#d84d3d]/30 bg-[#d84d3d]/10 px-4 py-1 text-xs font-black uppercase tracking-wider text-[#ff9d8e]">
-                <span className="size-2 rounded-full bg-[#d84d3d] animate-ping" /> Costa Rica · Plataforma Informativa
+                <span className="size-2 rounded-full bg-[#d84d3d] animate-ping" /> Costa Rica · Rubén Rodríguez – Plataforma Informativa
               </span>
 
               <h1 className="headline-display mt-6 text-[clamp(3.2rem,6.5vw,5.8rem)] font-black leading-[0.88] tracking-tight">
@@ -140,7 +140,7 @@ export default function Home() {
                   <MessageSquareText className="text-[#d84d3d]" size={24} />
                   <h3 className="mt-3 text-base font-black text-[#142235]">Seguimiento Continuo</h3>
                   <p className="mt-1 text-xs text-[#556377]">
-                    Monitorea el avance de tu caso mediante tu código o canal de WhatsApp.
+                    Monitorea el avance de tu caso desde tu cuenta privada mediante el código de seguimiento.
                   </p>
                 </div>
               </div>

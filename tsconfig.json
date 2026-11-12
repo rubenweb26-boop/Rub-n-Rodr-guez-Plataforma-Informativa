@@ -42,12 +42,16 @@
   ],
   "exclude": [
     "node_modules",
+    ".next",
+    "vite.config.ts",
     "examples",
     "dist",
     ".vinext",
     ".wrangler",
     ".sites-runtime",
     "outputs",
+    "CRM",
+    "backend",
     "work"
   ]
 }

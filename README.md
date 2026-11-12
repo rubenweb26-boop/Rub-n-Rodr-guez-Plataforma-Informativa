@@ -1,5 +1,7 @@
 # Plataforma digital de Rubén Rodríguez
 
+La web ciudadana, el CRM privado y su API administrativa son aplicaciones separadas. Consulte [la guía de separación y despliegue](docs/SEPARACION_WEB_CRM.md). La antigua ruta pública `/admin` y el webhook público de WhatsApp se retiraron.
+
 MVP de una plataforma editorial con membresías, denuncias privadas y una pasarela de pago alojada. La arquitectura elegida es **Google OAuth → Supabase Auth/Postgres/Storage → Tilopay Hosted Payment Page**.
 
 > El proyecto sigue en preparación. Los cobros y la recepción de denuncias están cerrados por defecto y no deben habilitarse con datos reales hasta completar la lista de salida a producción.
